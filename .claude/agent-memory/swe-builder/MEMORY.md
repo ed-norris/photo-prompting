@@ -1,0 +1,1 @@
+- [Image Prompt Workbench - Project Context](project_context.md) — Next.js 16 local Ollama image gen tool; src/ layout, SSE streaming, data URI images, gemma3 for variations
