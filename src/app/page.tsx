@@ -33,7 +33,8 @@ export default function HomePage() {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [availableImageModels, setAvailableImageModels] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>(DEFAULT_MODELS);
-  const [imagesPerModel, setImagesPerModel] = useState(2);
+  const [imagesPerModel, setImagesPerModel] = useState(1);
+  const [lastOptions, setLastOptions] = useState<{ width?: number; height?: number; steps?: number }>({});
 
   // Load available models from Ollama on mount
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function HomePage() {
     setIsGenerating(true);
     setSelectedModels(models);
     setImagesPerModel(imgPerModel);
+    setLastOptions(options);
     setRows((prev) => [...prev, newRow]);
 
     try {
@@ -205,11 +207,9 @@ export default function HomePage() {
   }
 
   function handleRunVariations(prompts: string[]) {
-    // Queue each variation as a sequential generation
-    // We run the first one immediately; subsequent ones after a tick
     const run = async () => {
       for (const p of prompts) {
-        await runGeneration(p, selectedModels, imagesPerModel, {});
+        await runGeneration(p, selectedModels, imagesPerModel, lastOptions);
       }
     };
     void run();

@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
-import { generateImage } from "@/lib/ollama";
+import { generateImage as ollamaGenerate } from "@/lib/ollama";
+import { generateImage as geminiGenerate } from "@/lib/gemini";
+import { generateImage as comfyuiGenerate } from "@/lib/comfyui";
 import type { GenerateRequest, ImageSSEEvent } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +10,20 @@ export const maxDuration = 600;
 
 function encodeSSE(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+function dispatchGenerate(
+  model: string,
+  prompt: string,
+  options: { width?: number; height?: number; steps?: number }
+) {
+  if (model.startsWith("gemini/")) {
+    return geminiGenerate(model.slice("gemini/".length), prompt, options);
+  }
+  if (model.startsWith("comfyui/")) {
+    return comfyuiGenerate(model.slice("comfyui/".length), prompt, options);
+  }
+  return ollamaGenerate(model, prompt, options);
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -22,7 +38,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
   }
 
-  const { prompt, models, imagesPerModel = 2, width, height, steps } = body;
+  const { prompt, models, imagesPerModel = 1, width, height, steps } = body;
 
   if (!prompt || !models || models.length === 0) {
     return new Response(
@@ -39,15 +55,10 @@ export async function POST(request: NextRequest): Promise<Response> {
         controller.enqueue(encoder.encode(encodeSSE(event)));
       }
 
-      // Process each model sequentially, and within each model process images sequentially
       for (const model of models) {
         for (let i = 0; i < imagesPerModel; i++) {
           try {
-            const image = await generateImage(model, prompt, {
-              width,
-              height,
-              steps,
-            });
+            const image = await dispatchGenerate(model, prompt, { width, height, steps });
 
             send({
               model,
@@ -56,8 +67,11 @@ export async function POST(request: NextRequest): Promise<Response> {
               durationMs: image.durationMs,
             });
           } catch (err) {
-            const message =
-              err instanceof Error ? err.message : "Unknown error";
+            let message = err instanceof Error ? err.message : "Unknown error";
+            // Node fetch wraps network errors (e.g. ECONNREFUSED) in err.cause
+            if (err instanceof Error && err.cause instanceof Error) {
+              message = `${message}: ${err.cause.message}`;
+            }
             send({
               model,
               imageIndex: i,

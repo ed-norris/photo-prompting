@@ -91,7 +91,7 @@ Return ONLY a numbered list with exactly ${count} items. Each item on its own li
 Format: "1. [variation]", "2. [variation]", etc. No other text.`;
 
   const body = {
-    model: "gemma3:latest",
+    model: "gemma4:e4b",
     prompt: `Base prompt: "${prompt}"\n\nGenerate ${count} photography-focused variations:`,
     system: systemPrompt,
     stream: false,

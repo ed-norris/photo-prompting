@@ -29,7 +29,7 @@ export default function PromptInput({
       availableModels.length === 0 ? true : availableModels.includes(m)
     )
   );
-  const [imagesPerModel, setImagesPerModel] = useState(2);
+  const [imagesPerModel, setImagesPerModel] = useState(1);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [width, setWidth] = useState<string>("");
   const [height, setHeight] = useState<string>("");
