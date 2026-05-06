@@ -66,6 +66,15 @@ export interface ModelsResponse {
   textModels: ModelInfo[];
 }
 
+// Debug info captured at generation time
+export interface DebugParams {
+  models: string[];
+  imagesPerModel: number;
+  width?: number;
+  height?: number;
+  steps?: number;
+}
+
 // UI state
 export interface PromptRow {
   id: string;
@@ -73,4 +82,5 @@ export interface PromptRow {
   status: "pending" | "generating" | "complete" | "error";
   results: ModelResult[];
   timestamp: number;
+  debugParams?: DebugParams;
 }

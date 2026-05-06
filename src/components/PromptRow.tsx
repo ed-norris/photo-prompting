@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { PromptRow as PromptRowType, GeneratedImage } from "@/types";
 import ImageCard from "@/components/ImageCard";
+import DebugPanel from "@/components/DebugPanel";
 
 interface PromptRowProps {
   row: PromptRowType;
@@ -16,6 +18,8 @@ export default function PromptRow({
   imagesPerModel,
   onExpand,
 }: PromptRowProps) {
+  const [showDebug, setShowDebug] = useState(false);
+
   // Build a flat list of all slots in order: model1-img0, model1-img1, model2-img0, ...
   // For each slot, find the corresponding result if it exists
   interface Slot {
@@ -93,6 +97,27 @@ export default function PromptRow({
           />
         ))}
       </div>
+
+      {/* Debug toggle */}
+      {row.debugParams && (
+        <>
+          <div className="px-4 py-2 border-t border-neutral-800 flex justify-end">
+            <button
+              onClick={() => setShowDebug((v) => !v)}
+              className="text-neutral-700 hover:text-neutral-500 text-xs transition-colors"
+            >
+              {showDebug ? "Hide debug" : "Debug"}
+            </button>
+          </div>
+          {showDebug && (
+            <DebugPanel
+              prompt={row.prompt}
+              params={row.debugParams}
+              timestamp={row.timestamp}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }

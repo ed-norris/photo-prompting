@@ -74,6 +74,7 @@ export default function HomePage() {
       status: "generating",
       results: [],
       timestamp: Date.now(),
+      debugParams: { models, imagesPerModel: imgPerModel, ...options },
     };
 
     setIsGenerating(true);

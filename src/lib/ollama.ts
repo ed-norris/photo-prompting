@@ -73,6 +73,27 @@ export async function generateImage(
   };
 }
 
+export function parseVariations(raw: string, count: number): string[] {
+  const lines = raw.split("\n").filter((l) => l.trim());
+  const variations: string[] = [];
+
+  for (const line of lines) {
+    const match = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (match) {
+      variations.push(match[1].trim());
+    }
+  }
+
+  if (variations.length === 0) {
+    return lines
+      .map((l) => l.replace(/^\s*[-*\d.]+\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, count);
+  }
+
+  return variations.slice(0, count);
+}
+
 /**
  * Generate prompt variations using gemma3 (text LLM).
  */
@@ -109,28 +130,7 @@ Format: "1. [variation]", "2. [variation]", etc. No other text.`;
   }
 
   const data = (await response.json()) as { response?: string };
-  const raw = data.response ?? "";
-
-  // Parse numbered list: "1. ...", "2. ...", etc.
-  const lines = raw.split("\n").filter((l) => l.trim());
-  const variations: string[] = [];
-
-  for (const line of lines) {
-    const match = line.match(/^\s*\d+\.\s+(.+)$/);
-    if (match) {
-      variations.push(match[1].trim());
-    }
-  }
-
-  // Fallback: if parsing failed, split on newlines and take non-empty ones
-  if (variations.length === 0) {
-    return lines
-      .map((l) => l.replace(/^\s*[-*\d.]+\s*/, "").trim())
-      .filter(Boolean)
-      .slice(0, count);
-  }
-
-  return variations.slice(0, count);
+  return parseVariations(data.response ?? "", count);
 }
 
 /**

@@ -1,7 +1,5 @@
 import { NextRequest } from "next/server";
-import { generateImage as ollamaGenerate } from "@/lib/ollama";
-import { generateImage as geminiGenerate } from "@/lib/gemini";
-import { generateImage as comfyuiGenerate } from "@/lib/comfyui";
+import { dispatchGenerate } from "@/lib/dispatch";
 import type { GenerateRequest, ImageSSEEvent } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -10,20 +8,6 @@ export const maxDuration = 600;
 
 function encodeSSE(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
-}
-
-function dispatchGenerate(
-  model: string,
-  prompt: string,
-  options: { width?: number; height?: number; steps?: number }
-) {
-  if (model.startsWith("gemini/")) {
-    return geminiGenerate(model.slice("gemini/".length), prompt, options);
-  }
-  if (model.startsWith("comfyui/")) {
-    return comfyuiGenerate(model.slice("comfyui/".length), prompt, options);
-  }
-  return ollamaGenerate(model, prompt, options);
 }
 
 export async function POST(request: NextRequest): Promise<Response> {

@@ -1,7 +1,7 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-04-14
+> **Last updated:** 2026-05-05
 > **Confidence:** 90%
 
 ---
@@ -55,11 +55,17 @@ Built for a class in AI, photography, and cinema.
 - Width/height/steps not supported by this API; advanced options are ignored for this model
 - Only appears in the model list when `GEMINI_API_KEY` is set in `.env.local`
 
-### v2 — Remote (future)
+### v1 — Remote (OpenAI)
 
 | Model | Provider | Notes |
 |-------|----------|-------|
-| DALL-E | OpenAI API | API key required, TBD |
+| `openai/gpt-image-1-mini` | OpenAI API | API key required via `OPENAI_API_KEY` env var |
+
+- Uses `https://api.openai.com/v1/images/generations`
+- Request: `{"model": "gpt-image-1-mini", "prompt": "...", "n": 1, "size": "1024x1024", "response_format": "b64_json"}`
+- Response: `data[0].b64_json` (base64 PNG)
+- Only appears in the model list when `OPENAI_API_KEY` is set in `.env.local`
+- Size can be overridden via Advanced options (1024×1024, 512×512); steps not supported
 
 ## 4. Prompt System
 
@@ -153,8 +159,11 @@ Next.js API Routes (backend)
     ├──► ComfyUI REST API (localhost:8188)
     │       └── flux-dev1 (Flux Dev 1 checkpoint)
     │
-    └──► Gemini API (generativelanguage.googleapis.com)
-            └── gemini-3.1-flash-image-preview
+    ├──► Gemini API (generativelanguage.googleapis.com)
+    │       └── gemini-3.1-flash-image-preview
+    │
+    └──► OpenAI API (api.openai.com)
+            └── gpt-image-1-mini
 ```
 
 ### Image Generation Flow
@@ -172,10 +181,11 @@ Next.js API Routes (backend)
 5. Variations use the same models and Advanced options as the last Generate
 
 ### Model Dispatch
-- Model names are prefixed by backend: `gemini/...`, `comfyui/...`, or bare name (Ollama)
+- Model names are prefixed by backend: `gemini/...`, `comfyui/...`, `openai/...`, or bare name (Ollama)
 - `/api/generate` dispatches based on prefix
-- `/api/models` returns Ollama models dynamically + ComfyUI and Gemini as static entries
+- `/api/models` returns Ollama models dynamically + ComfyUI, Gemini, and OpenAI as static entries
   - Gemini only included when `GEMINI_API_KEY` is set
+  - OpenAI only included when `OPENAI_API_KEY` is set
 
 ## 7. Verified API Details
 
@@ -201,7 +211,52 @@ Next.js API Routes (backend)
 - **Request:** `{"contents": [{"parts": [{"text": "..."}]}], "generationConfig": {"responseModalities": ["IMAGE"]}}`
 - **Response:** `candidates[0].content.parts[]` — find part with `inlineData.data` (base64) and `inlineData.mimeType`
 
-## 8. Open Questions
+### OpenAI
+- **Endpoint:** `POST https://api.openai.com/v1/images/generations`
+- **Request:** `{"model": "gpt-image-1-mini", "prompt": "...", "n": 1, "size": "1024x1024", "response_format": "b64_json"}`
+- **Response:** `data[0].b64_json` (base64 PNG)
+- Auth: `Authorization: Bearer ${OPENAI_API_KEY}` header
+
+## 8. Debug Panel
+
+A collapsible debug panel shown below each result row (or as a drawer) displaying the exact parameters sent to each model for that generation.
+
+### Contents
+- Model name and backend prefix
+- Full prompt text (after any variation substitution)
+- All request parameters: `size`, `steps`, `n`, and any model-specific fields (e.g. `response_format`, `responseModalities`)
+- Timestamp and approximate generation duration
+
+### Behavior
+- Collapsed by default; user expands per-row with a "Debug" toggle
+- Read-only, copy-to-clipboard button for the raw JSON payload
+- Helps users understand what was actually sent when results look unexpected
+
+## 9. Unit Tests
+
+### Scope
+Unit tests cover the backend API route logic and utility functions. UI components are not unit-tested (manual browser testing is sufficient for this personal tool).
+
+### Framework
+- **Jest** with `ts-jest` for TypeScript support
+- Test files colocated as `*.test.ts` alongside source files, or grouped under `__tests__/`
+
+### What to Test
+
+| Area | Examples |
+|------|---------|
+| Model dispatch | `gemini/...` routes to Gemini client; `openai/...` routes to OpenAI client; bare name routes to Ollama |
+| Model list filtering | Gemini excluded when `GEMINI_API_KEY` unset; OpenAI excluded when `OPENAI_API_KEY` unset |
+| Base64 utilities | Encode/decode round-trips; data URI construction |
+| Request builders | Correct shape of Ollama, ComfyUI, Gemini, and OpenAI payloads given a prompt + options |
+| Variation parser | LLM response string → array of clean variation strings |
+
+### What Not to Test
+- Actual HTTP calls to external services (mock the fetch/axios layer)
+- Next.js routing and middleware (framework responsibility)
+- UI rendering
+
+## 10. Open Questions
 
 1. **How many variations to suggest?** Starting with 3-5 seems reasonable.
 2. **Persistence for v2** — save history, favorites, ratings?
