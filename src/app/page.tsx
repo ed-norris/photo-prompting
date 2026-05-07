@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PromptInput from "@/components/PromptInput";
 import SuggestionsPanel from "@/components/SuggestionsPanel";
 import VariationsPanel from "@/components/VariationsPanel";
 import ResultsGrid from "@/components/ResultsGrid";
 import ImageModal from "@/components/ImageModal";
+import QueuePanel from "@/components/QueuePanel";
 import type {
   PromptRow,
   GeneratedImage,
@@ -26,6 +27,82 @@ interface ModalState {
   durationMs: number;
 }
 
+// ---------------------------------------------------------------------------
+// SSE streaming helper — shared by runGeneration, handleRetry
+// ---------------------------------------------------------------------------
+async function streamGenerationEvents(
+  prompt: string,
+  models: string[],
+  imagesPerModel: number,
+  options: { width?: number; height?: number; steps?: number },
+  onEvent: (event: ImageSSEEvent) => void
+): Promise<void> {
+  const response = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, models, imagesPerModel, ...options }),
+  });
+
+  if (!response.ok || !response.body) {
+    const errText = await response.text().catch(() => "");
+    let errMsg = `Generation failed: ${response.status}`;
+    try {
+      const parsed = JSON.parse(errText) as { error?: string };
+      if (parsed.error) errMsg = parsed.error;
+    } catch { /* raw text */ }
+    throw new Error(errMsg);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        onEvent(JSON.parse(payload) as ImageSSEEvent);
+      } catch { continue; }
+    }
+  }
+}
+
+// Apply a single SSE event to a row's results (pure helper)
+function applySSEEvent(row: PromptRow, event: ImageSSEEvent): PromptRow {
+  const results = [...row.results];
+  const idx = results.findIndex((r) => r.model === event.model);
+
+  if (event.error) {
+    if (idx >= 0) results[idx] = { ...results[idx], error: event.error };
+    else results.push({ model: event.model, images: [], error: event.error });
+  } else {
+    const newImage: GeneratedImage = {
+      dataUri: event.dataUri,
+      durationMs: event.durationMs,
+    };
+    if (idx >= 0) {
+      results[idx] = { ...results[idx], images: [...results[idx].images, newImage] };
+    } else {
+      results.push({ model: event.model, images: [newImage] });
+    }
+  }
+
+  return { ...row, results };
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export default function HomePage() {
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<PromptRow[]>([]);
@@ -36,22 +113,25 @@ export default function HomePage() {
   const [imagesPerModel, setImagesPerModel] = useState(1);
   const [lastOptions, setLastOptions] = useState<{ width?: number; height?: number; steps?: number }>({});
 
-  // Load available models from Ollama on mount
+  // Queue state
+  const [queue, setQueue] = useState<string[]>([]);
+  const [isQueueRunning, setIsQueueRunning] = useState(false);
+  const cancelQueueRef = useRef(false);
+
+  // Load available models on mount
   useEffect(() => {
     fetch("/api/models")
       .then((r) => r.json())
       .then((data: ModelsResponse | { error?: string }) => {
         if ("imageModels" in data && data.imageModels.length > 0) {
-          const names = data.imageModels.map((m) => m.name);
-          setAvailableImageModels(names);
+          setAvailableImageModels(data.imageModels.map((m) => m.name));
         }
       })
       .catch(() => {
-        // Ollama not running — fall back to hardcoded defaults; user will see errors on generate
+        // Ollama not running — fall back to hardcoded defaults
       });
   }, []);
 
-  // Update row state helper
   const updateRow = useCallback(
     (id: string, updater: (row: PromptRow) => PromptRow) => {
       setRows((prev) => prev.map((r) => (r.id === id ? updater(r) : r)));
@@ -59,14 +139,16 @@ export default function HomePage() {
     []
   );
 
+  // ---------------------------------------------------------------------------
+  // Core generation — creates a new row and streams results into it.
+  // Callers are responsible for setting isGenerating.
+  // ---------------------------------------------------------------------------
   async function runGeneration(
     promptText: string,
     models: string[],
     imgPerModel: number,
     options: { width?: number; height?: number; steps?: number }
   ) {
-    if (isGenerating) return;
-
     const id = generateId();
     const newRow: PromptRow = {
       id,
@@ -77,114 +159,13 @@ export default function HomePage() {
       debugParams: { models, imagesPerModel: imgPerModel, ...options },
     };
 
-    setIsGenerating(true);
-    setSelectedModels(models);
-    setImagesPerModel(imgPerModel);
-    setLastOptions(options);
     setRows((prev) => [...prev, newRow]);
 
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: promptText,
-          models,
-          imagesPerModel: imgPerModel,
-          ...options,
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        const errText = await response.text().catch(() => "");
-        let errMsg = `Generation failed: ${response.status}`;
-        try {
-          const parsed = JSON.parse(errText) as { error?: string };
-          if (parsed.error) errMsg = parsed.error;
-        } catch { /* raw text */ }
-
-        updateRow(id, (r) => ({
-          ...r,
-          status: "error",
-          results: models.map((m) => ({ model: m, images: [], error: errMsg })),
-        }));
-        return;
-      }
-
-      // Stream SSE events
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // SSE events are separated by double newlines
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith("data:")) continue;
-
-          const payload = line.slice(5).trim();
-          if (payload === "[DONE]") continue;
-
-          let event: ImageSSEEvent;
-          try {
-            event = JSON.parse(payload) as ImageSSEEvent;
-          } catch {
-            continue;
-          }
-
-          updateRow(id, (r) => {
-            const results = [...r.results];
-            const modelIdx = results.findIndex((res) => res.model === event.model);
-
-            if (event.error) {
-              // Record the error for this model
-              if (modelIdx >= 0) {
-                results[modelIdx] = {
-                  ...results[modelIdx],
-                  error: event.error,
-                };
-              } else {
-                results.push({
-                  model: event.model,
-                  images: [],
-                  error: event.error,
-                });
-              }
-            } else {
-              // Add the completed image
-              const newImage: GeneratedImage = {
-                dataUri: event.dataUri,
-                durationMs: event.durationMs,
-              };
-
-              if (modelIdx >= 0) {
-                const existingImages = [...results[modelIdx].images, newImage];
-                results[modelIdx] = {
-                  ...results[modelIdx],
-                  images: existingImages,
-                };
-              } else {
-                results.push({
-                  model: event.model,
-                  images: [newImage],
-                });
-              }
-            }
-
-            return { ...r, results };
-          });
-        }
-      }
-
-      // Mark row as complete
+      await streamGenerationEvents(
+        promptText, models, imgPerModel, options,
+        (event) => updateRow(id, (r) => applySSEEvent(r, event))
+      );
       updateRow(id, (r) => ({ ...r, status: "complete" }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -193,27 +174,110 @@ export default function HomePage() {
         status: "error",
         results: models.map((m) => ({ model: m, images: [], error: msg })),
       }));
-    } finally {
-      setIsGenerating(false);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
   function handleGenerate(
     promptText: string,
     models: string[],
     imgPerModel: number,
     options: { width?: number; height?: number; steps?: number }
   ) {
-    void runGeneration(promptText, models, imgPerModel, options);
+    if (isGenerating) return;
+    setIsGenerating(true);
+    setSelectedModels(models);
+    setImagesPerModel(imgPerModel);
+    setLastOptions(options);
+    void runGeneration(promptText, models, imgPerModel, options).finally(() =>
+      setIsGenerating(false)
+    );
   }
 
   function handleRunVariations(prompts: string[]) {
+    if (isGenerating) return;
+    setIsGenerating(true);
     const run = async () => {
       for (const p of prompts) {
         await runGeneration(p, selectedModels, imagesPerModel, lastOptions);
       }
     };
-    void run();
+    void run().finally(() => setIsGenerating(false));
+  }
+
+  // Retry a single model cell within an existing row
+  async function handleRetry(rowId: string, model: string) {
+    const row = rows.find((r) => r.id === rowId);
+    if (!row?.debugParams) return;
+
+    const { width, height, steps } = row.debugParams;
+
+    // Reset this model's slot back to loading
+    updateRow(rowId, (r) => ({
+      ...r,
+      status: "generating",
+      results: r.results.map((res) =>
+        res.model === model ? { model, images: [] } : res
+      ),
+    }));
+
+    try {
+      await streamGenerationEvents(
+        row.prompt, [model], 1, { width, height, steps },
+        (event) => updateRow(rowId, (r) => applySSEEvent(r, event))
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      updateRow(rowId, (r) => ({
+        ...r,
+        results: r.results.map((res) =>
+          res.model === model ? { model, images: [], error: msg } : res
+        ),
+      }));
+    } finally {
+      updateRow(rowId, (r) => ({ ...r, status: "complete" }));
+    }
+  }
+
+  // Queue handlers
+  function handleAddToQueue(promptText: string) {
+    setQueue((prev) => [...prev, promptText]);
+  }
+
+  function handleRemoveFromQueue(index: number) {
+    setQueue((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleClearQueue() {
+    setQueue([]);
+  }
+
+  function handleRunQueue() {
+    if (isGenerating || isQueueRunning || queue.length === 0) return;
+    setIsGenerating(true);
+    setIsQueueRunning(true);
+    cancelQueueRef.current = false;
+
+    const promptsToRun = [...queue];
+
+    const run = async () => {
+      for (const p of promptsToRun) {
+        if (cancelQueueRef.current) break;
+        await runGeneration(p, selectedModels, imagesPerModel, lastOptions);
+      }
+    };
+
+    void run().finally(() => {
+      setIsGenerating(false);
+      setIsQueueRunning(false);
+      setQueue([]);
+    });
+  }
+
+  function handleStopQueue() {
+    cancelQueueRef.current = true;
   }
 
   function handleInsertTerm(term: string) {
@@ -265,7 +329,7 @@ export default function HomePage() {
           <SuggestionsPanel onInsert={handleInsertTerm} />
         </aside>
 
-        {/* Center: prompt + variations + results */}
+        {/* Center: prompt + variations + queue + results */}
         <main className="flex-1 min-w-0 flex flex-col gap-6">
           {/* Prompt Input */}
           <section className="flex flex-col gap-4 bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
@@ -291,6 +355,22 @@ export default function HomePage() {
             />
           </section>
 
+          {/* Prompt Queue */}
+          <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
+            <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-3">
+              Prompt Queue
+            </h2>
+            <QueuePanel
+              queue={queue}
+              isRunning={isQueueRunning}
+              onAdd={handleAddToQueue}
+              onRemove={handleRemoveFromQueue}
+              onClear={handleClearQueue}
+              onRun={handleRunQueue}
+              onStop={handleStopQueue}
+            />
+          </section>
+
           {/* Results */}
           <section className="flex flex-col gap-3">
             <ResultsGrid
@@ -298,6 +378,7 @@ export default function HomePage() {
               models={selectedModels}
               imagesPerModel={imagesPerModel}
               onExpand={handleExpand}
+              onRetry={handleRetry}
               onClear={() => setRows([])}
             />
           </section>

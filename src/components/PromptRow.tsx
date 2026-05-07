@@ -10,6 +10,7 @@ interface PromptRowProps {
   models: string[];
   imagesPerModel: number;
   onExpand: (image: GeneratedImage, model: string, prompt: string) => void;
+  onRetry: (model: string) => void;
 }
 
 export default function PromptRow({
@@ -17,6 +18,7 @@ export default function PromptRow({
   models,
   imagesPerModel,
   onExpand,
+  onRetry,
 }: PromptRowProps) {
   const [showDebug, setShowDebug] = useState(false);
 
@@ -94,6 +96,7 @@ export default function PromptRow({
             error={slot.error}
             prompt={row.prompt}
             onExpand={(img, model) => onExpand(img, model, row.prompt)}
+            onRetry={slot.error ? () => onRetry(slot.model) : undefined}
           />
         ))}
       </div>

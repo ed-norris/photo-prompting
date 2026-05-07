@@ -1,7 +1,7 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-05-05
+> **Last updated:** 2026-05-05 (rev 2)
 > **Confidence:** 90%
 
 ---
@@ -140,9 +140,11 @@ Clicking a suggestion appends it to the prompt (or inserts at cursor).
 - Rows accumulate as you generate more, so you can scroll and compare
 
 ### Error Handling
-- Errors surface as an alert/toast — user stops the app and addresses the issue
-- No graceful recovery needed (errors are significant, e.g. model not running)
-- Per-model error states are shown in the results grid cells
+- Per-model errors are shown inline in the results grid cell (not a toast)
+- Each failed cell shows the error message and a **Retry** button
+- Retry reruns generation for that single model + prompt only; the cell returns to loading state while retrying
+- On retry success the error is replaced by the generated image; on retry failure the error is updated
+- Fatal/unexpected errors (e.g. bad request) still surface as a toast
 
 ## 6. Architecture
 
@@ -166,12 +168,36 @@ Next.js API Routes (backend)
             └── gpt-image-1-mini
 ```
 
+### Model Classification: Remote vs Local
+
+| Class | Prefix / type | Execution |
+|-------|--------------|-----------|
+| Remote | `gemini/`, `openai/` | Parallel — all start immediately |
+| Local | `comfyui/`, bare Ollama names | Serial — one at a time (shared GPU) |
+
+Remote and local groups run concurrently with each other; only models within the local group are serialised.
+
 ### Image Generation Flow
 1. User submits prompt → POST /api/generate
-2. Backend dispatches each model to the correct backend (Ollama / ComfyUI / Gemini)
-3. Each backend returns a base64-encoded image (as a data URI)
-4. Backend streams SSE events to frontend as each image completes
-5. Frontend renders images in the grid using data URIs (`data:image/png;base64,...`)
+2. Backend splits the model list into **remote** and **local** groups
+3. Remote models are all dispatched immediately via `Promise.allSettled`
+4. Local models are dispatched one at a time in order; the first starts immediately (concurrently with the remotes), each subsequent one waits for the previous to finish
+5. As each call completes (in any order), the backend emits an SSE event with the result or error
+6. Frontend renders images in the grid as events arrive — cells fill in as they complete, not left-to-right
+
+**Example** — gemini, openai, flux2-klein, z-image-turbo selected:
+```
+t=0   gemini   ─────────────────────►  (remote, parallel)
+t=0   openai   ──────────────────────────►  (remote, parallel)
+t=0   flux2-klein  ────────────►  (local #1, starts immediately)
+t=?                              z-image-turbo  ──────────►  (local #2, starts when flux2-klein finishes)
+```
+
+### Retry Flow
+1. User clicks **Retry** on a failed image cell
+2. Frontend POSTs `/api/generate` with the original prompt, the single failed model, and `imagesPerModel: 1`
+3. The cell resets to loading state and streams the result exactly as a normal generation
+4. The original `debugParams` for the row are reused (model + options are unchanged)
 
 ### Variation Suggestion Flow
 1. User clicks "Suggest Variations" → POST /api/suggest
@@ -181,8 +207,8 @@ Next.js API Routes (backend)
 5. Variations use the same models and Advanced options as the last Generate
 
 ### Model Dispatch
-- Model names are prefixed by backend: `gemini/...`, `comfyui/...`, `openai/...`, or bare name (Ollama)
-- `/api/generate` dispatches based on prefix
+- Model names are prefixed by backend: `gemini/...`, `openai/...`, `comfyui/...`, or bare name (Ollama)
+- `/api/generate` splits models into remote (`gemini/`, `openai/`) and local (`comfyui/`, bare) then dispatches accordingly (see execution model above)
 - `/api/models` returns Ollama models dynamically + ComfyUI, Gemini, and OpenAI as static entries
   - Gemini only included when `GEMINI_API_KEY` is set
   - OpenAI only included when `OPENAI_API_KEY` is set
@@ -232,6 +258,9 @@ A collapsible debug panel shown below each result row (or as a drawer) displayin
 - Read-only, copy-to-clipboard button for the raw JSON payload
 - Helps users understand what was actually sent when results look unexpected
 
+### Server-side error logging
+When any model backend returns a non-200 HTTP status, the API route logs the details via `console.log` — visible in the terminal running `next dev`. Log line includes the model name, HTTP status code, and raw response body. This is in addition to the error being surfaced in the UI cell.
+
 ## 9. Unit Tests
 
 ### Scope
@@ -256,7 +285,44 @@ Unit tests cover the backend API route logic and utility functions. UI component
 - Next.js routing and middleware (framework responsibility)
 - UI rendering
 
-## 10. Open Questions
+## 10. Prompt Queue
+
+Allows the user to line up multiple prompts in advance and walk away while they run sequentially.
+
+### UI
+
+```
+┌──────────────────────────────────────────┐
+│ Prompt Queue                             │
+│                                          │
+│ [prompt text input                ] [Add]│
+│                                          │
+│  1. a foggy pier at dawn            [✕]  │
+│  2. golden hour on a beach          [✕]  │
+│  3. rainy city street at night      [✕]  │
+│                                          │
+│  [Run Queue (3)]           [Clear all]   │
+└──────────────────────────────────────────┘
+```
+
+- Text input + **Add** button; each press appends the prompt to the list
+- Each queued item has a remove (✕) button, available only before the queue starts
+- **Run Queue** is disabled when the list is empty
+- While running, items and the Add button are locked; **Run Queue** becomes **Stop**
+- **Stop** cancels the queue after the current generation finishes (does not mid-stream abort)
+- After the queue finishes (or is stopped), the list clears automatically
+
+### Behaviour
+- All queued prompts run with the models and Advanced options that are active at the moment **Run Queue** is clicked — settings do not need to match what's in the main prompt box
+- Prompts execute one at a time in list order; each produces a new row in the Results Grid as it completes
+- On failure, the row shows the error (retry button available as normal) and the queue continues to the next prompt
+- Queue state is session-only (not persisted across reloads)
+
+### Architecture note
+- Reuses the existing `runGeneration()` frontend function, called in a loop (same pattern as variation runs)
+- No new API endpoints needed
+
+## 11. Open Questions
 
 1. **How many variations to suggest?** Starting with 3-5 seems reasonable.
 2. **Persistence for v2** — save history, favorites, ratings?

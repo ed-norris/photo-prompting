@@ -9,6 +9,7 @@ interface ImageCardProps {
   error?: string;
   prompt: string;
   onExpand: (image: GeneratedImage, model: string) => void;
+  onRetry?: () => void;
 }
 
 export default function ImageCard({
@@ -18,6 +19,7 @@ export default function ImageCard({
   error,
   prompt,
   onExpand,
+  onRetry,
 }: ImageCardProps) {
   const shortModel = model.split("/").pop() ?? model;
 
@@ -55,6 +57,14 @@ export default function ImageCard({
             />
           </svg>
           <span className="text-red-400 text-xs text-center line-clamp-3">{error}</span>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-1 px-2.5 py-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 text-xs transition-colors"
+            >
+              Retry
+            </button>
+          )}
         </div>
         <div className="text-neutral-600 text-xs font-mono truncate text-center" title={model}>
           {shortModel}

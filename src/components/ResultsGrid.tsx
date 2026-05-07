@@ -8,6 +8,7 @@ interface ResultsGridProps {
   models: string[];
   imagesPerModel: number;
   onExpand: (image: GeneratedImage, model: string, prompt: string) => void;
+  onRetry: (rowId: string, model: string) => void;
   onClear: () => void;
 }
 
@@ -16,6 +17,7 @@ export default function ResultsGrid({
   models,
   imagesPerModel,
   onExpand,
+  onRetry,
   onClear,
 }: ResultsGridProps) {
   if (rows.length === 0) {
@@ -63,6 +65,7 @@ export default function ResultsGrid({
             models={models}
             imagesPerModel={imagesPerModel}
             onExpand={onExpand}
+            onRetry={(model) => onRetry(row.id, model)}
           />
         ))}
       </div>
