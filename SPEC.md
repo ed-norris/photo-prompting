@@ -1,7 +1,7 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-05-23 (rev 3)
+> **Last updated:** 2026-05-24 (rev 4)
 > **Confidence:** 90%
 
 ---
@@ -205,9 +205,16 @@ Switching tabs replaces the entire content area. The selected model list, advanc
 **Image input slot:**
 - Left half of the prompt row, same height as the text side
 - Empty state: drag-and-drop zone with "Drop image here, click to browse, or paste" hint
-- Accepts: file picker (any common image format), clipboard paste (Ctrl/Cmd+V)
-- Loaded state: shows a thumbnail of the image with a remove (×) button
-- Image stored as a base64 data URI in React state; never written to disk
+- Accepts:
+  - **File picker** — any format the browser can decode (PNG, JPG, WebP, HEIC, GIF, …)
+  - **Clipboard paste** — Cmd/Ctrl+V anywhere on the page
+  - **Drag from Finder / filesystem** — file items, including those with no MIME type (e.g. Obsidian attachments)
+  - **Drag from within the app** — generated result images expose their data URI via `text/uri-list` so they can be dragged directly into the slot
+  - **Drag from other apps** — URI list (`text/uri-list`) and HTML `<img src>` fallback for apps that don't provide a file item
+- Every image is decoded through a `<canvas>` and re-encoded as PNG. This normalises HEIC and any other format the browser supports, ensures API compatibility, and captures the image's natural pixel dimensions.
+- The detected dimensions (width × height) are shown below the thumbnail and forwarded to the API so `resolveSize()` can pick the matching output aspect ratio (portrait / landscape / square).
+- Loaded state: shows a thumbnail with hover controls — **Replace** (re-opens file picker) and **Remove** (clears the slot)
+- Image stored as a base64 PNG data URI in React state; never written to disk
 
 ### Error Handling
 - Per-model errors are shown inline in the results grid cell (not a toast)

@@ -89,11 +89,74 @@ export default function ImageInput({ value, onChange }: ImageInputProps) {
     e.target.value = "";
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+  async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    void processFile(file, onChange);
+
+    // 1. File items — covers Finder, Obsidian, and other Electron apps.
+    //    Accept items with an image MIME type OR an empty type (Obsidian often
+    //    omits the MIME type when dragging attachments).
+    const items = Array.from(e.dataTransfer.items);
+    const fileItem = items.find(
+      (item) =>
+        item.kind === "file" &&
+        (item.type.startsWith("image/") || item.type === "")
+    );
+    if (fileItem) {
+      const file = fileItem.getAsFile();
+      if (file) {
+        await processFile(file, onChange);
+        return;
+      }
+    }
+
+    // 2. URI list — covers:
+    //    • data: URIs from dragged <img> elements (generated results in this app)
+    //    • file:// or http:// URLs provided by some apps
+    const uriList = e.dataTransfer.getData("text/uri-list");
+    if (uriList) {
+      const uris = uriList
+        .split(/\r?\n/)
+        .map((u) => u.trim())
+        .filter((u) => u.length > 0 && !u.startsWith("#"));
+      if (uris.length > 0) {
+        const uri = uris[0];
+        if (uri.startsWith("data:image/")) {
+          // In-app generated image drag — data URI is already available
+          const { dataUri, width, height } = await normalizeImage(uri);
+          onChange(dataUri, { width, height });
+          return;
+        }
+        // file:// or http:// — fetch and convert via canvas
+        try {
+          const resp = await fetch(uri);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const raw = await fileToDataUri(
+              new File([blob], "image", { type: blob.type || "image/png" })
+            );
+            const { dataUri, width, height } = await normalizeImage(raw);
+            onChange(dataUri, { width, height });
+            return;
+          }
+        } catch {
+          /* cross-origin or unavailable — fall through */
+        }
+      }
+    }
+
+    // 3. HTML fallback — some apps (e.g. web browsers, Notion) put an
+    //    <img src="..."> in text/html; extract and use the src.
+    const html = e.dataTransfer.getData("text/html");
+    if (html) {
+      const match = html.match(/src=["']([^"']+)["']/i);
+      if (match?.[1]) {
+        const src = match[1];
+        if (src.startsWith("data:image/")) {
+          const { dataUri, width, height } = await normalizeImage(src);
+          onChange(dataUri, { width, height });
+        }
+      }
+    }
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {

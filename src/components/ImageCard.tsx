@@ -95,6 +95,13 @@ export default function ImageCard({
         <img
           src={image.dataUri}
           alt={prompt}
+          draggable
+          onDragStart={(e) => {
+            // Expose the data URI so ImageInput's drop handler can receive it
+            // via text/uri-list (standard) and text/plain (broad compat).
+            e.dataTransfer.setData("text/uri-list", image.dataUri);
+            e.dataTransfer.setData("text/plain", image.dataUri);
+          }}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         />
       </button>
