@@ -2,11 +2,21 @@ import type { GeneratedImage } from "@/types";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
+/** Parse a base64 data URI into its MIME type and raw base64 string. */
+function parseDataUri(uri: string): { mimeType: string; data: string } {
+  const comma = uri.indexOf(",");
+  const header = uri.slice(0, comma); // e.g. "data:image/png;base64"
+  const data = uri.slice(comma + 1);
+  const mimeType = header.split(":")[1]?.split(";")[0] ?? "image/png";
+  return { mimeType, data };
+}
+
 export async function generateImage(
   model: string,
   prompt: string,
   // width/height not supported by Gemini image generation API
-  _options?: { width?: number; height?: number; steps?: number }
+  _options?: { width?: number; height?: number; steps?: number },
+  imageDataUri?: string
 ): Promise<GeneratedImage> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -15,13 +25,20 @@ export async function generateImage(
 
   const start = Date.now();
 
+  // Build the parts array — text always first, image reference appended when provided
+  const parts: unknown[] = [{ text: prompt }];
+  if (imageDataUri) {
+    const { mimeType, data } = parseDataUri(imageDataUri);
+    parts.push({ inlineData: { mimeType, data } });
+  }
+
   const response = await fetch(
     `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts }],
         generationConfig: { responseModalities: ["IMAGE"] },
       }),
     }
@@ -43,8 +60,8 @@ export async function generateImage(
     }>;
   };
 
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  const imagePart = parts.find((p) => p.inlineData?.data);
+  const responseParts = data.candidates?.[0]?.content?.parts ?? [];
+  const imagePart = responseParts.find((p) => p.inlineData?.data);
 
   if (!imagePart?.inlineData) {
     throw new Error(`Gemini response for model ${model} did not include image data`);

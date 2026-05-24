@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
   }
 
-  const { prompt, models, imagesPerModel = 1, width, height, steps } = body;
+  const { prompt, models, imagesPerModel = 1, width, height, steps, imageDataUri } = body;
 
   if (!prompt || !models || models.length === 0) {
     return new Response(
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       // Start all remote models immediately (parallel)
       const remotePromises = remoteModels.flatMap((model) =>
         Array.from({ length: imagesPerModel }, (_, i) =>
-          dispatchGenerate(model, prompt, { width, height, steps })
+          dispatchGenerate(model, prompt, { width, height, steps, imageDataUri })
             .then((image) => {
               send({
                 model,
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       for (const model of localModels) {
         for (let i = 0; i < imagesPerModel; i++) {
           try {
-            const image = await dispatchGenerate(model, prompt, { width, height, steps });
+            const image = await dispatchGenerate(model, prompt, { width, height, steps, imageDataUri });
             send({
               model,
               imageIndex: i,

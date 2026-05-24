@@ -17,6 +17,7 @@ export interface GenerateRequest {
   width?: number;
   height?: number;
   steps?: number;
+  imageDataUri?: string; // base64 data URI — enables T+I→I mode
 }
 
 export interface GeneratedImage {
@@ -59,6 +60,7 @@ export interface SuggestResponse {
 export interface ModelInfo {
   name: string;
   size: string;
+  imageInput?: boolean; // true = supports text + image → image (T+I→I tab)
 }
 
 export interface ModelsResponse {
@@ -73,6 +75,7 @@ export interface DebugParams {
   width?: number;
   height?: number;
   steps?: number;
+  imageDataUri?: string; // preserved so retry can re-send the same image
 }
 
 // UI state

@@ -1,14 +1,19 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-05-05 (rev 2)
+> **Last updated:** 2026-05-23 (rev 3)
 > **Confidence:** 90%
 
 ---
 
 ## 1. Overview
 
-A personal web-based tool for evaluating and improving image generation prompts. Run prompts and prompt variations through multiple image generation models, view results side by side, and learn how photography terminology (lens, f-stop, focal length, lighting, film stock) affects generated images.
+A personal web-based tool for evaluating and improving image generation prompts. The app has two modes, selected by a tab bar at the top of the page:
+
+| Tab | Label | Purpose |
+|-----|-------|---------|
+| Text → Image | **Text** | Run text prompts through multiple models and compare results side by side |
+| Text + Image → Image | **Text and Reference** | Supply a reference image alongside a text prompt; only models that support image input are shown |
 
 Built for a class in AI, photography, and cinema.
 
@@ -19,6 +24,7 @@ Built for a class in AI, photography, and cinema.
 - View results in a side-by-side grid (default: 1 image per model per prompt)
 - Provide suggestions for photography-related prompt terms (lens types, f-stops, focal lengths, lighting setups, film stocks, composition techniques)
 - Learn how camera/photography terminology translates into visual differences in AI-generated images
+- Use a reference image alongside a text prompt to guide generation (Text and Reference mode)
 
 ## 3. Models
 
@@ -69,11 +75,13 @@ Built for a class in AI, photography, and cinema.
 
 ## 4. Prompt System
 
+> Sections 4.2 and 4.3 apply to the **Text tab only**. The Text and Reference tab has a freeform text input but no suggestions panel and no variations.
+
 ### 4.1 Freeform Input
 - Single text box for writing prompts
 - User types whatever they want
 
-### 4.2 Suggestions Panel
+### 4.2 Suggestions Panel _(Text only)_
 Adjacent to the text box, a panel with clickable/browsable photography terms organized by category:
 
 - **Lens type:** 50mm prime, 85mm portrait, 24mm wide-angle, 200mm telephoto, tilt-shift, macro, fisheye
@@ -86,7 +94,7 @@ Adjacent to the text box, a panel with clickable/browsable photography terms org
 
 Clicking a suggestion appends it to the prompt (or inserts at cursor).
 
-### 4.3 Auto-generated Variations
+### 4.3 Auto-generated Variations _(Text only)_
 - Given a base prompt, the app suggests N variations using `gemma4:e4b` via Ollama
 - Variations adjust style, lighting, composition, or camera parameters
 - Each variation is shown with a checkbox; user selects which to run
@@ -106,11 +114,28 @@ Clicking a suggestion appends it to the prompt (or inserts at cursor).
 - **Backend:** Next.js API routes (call Ollama/ComfyUI/Gemini, manage generated images)
 - **Persistence:** None (session-only). SQLite possible for v2 if history/favorites are wanted.
 
+### Tab Bar
+
+A tab bar appears at the very top of the page, above all other content:
+
+```
+┌──────────────────────────────────────────────────┐
+│  [ Text ]  [ Text and Reference ]                       │
+└──────────────────────────────────────────────────┘
+```
+
+Switching tabs replaces the entire content area. The selected model list, advanced options, and results grid are independent per tab (not shared).
+
+---
+
 ### Key Views
 
-#### Prompt View (main screen)
+#### Text tab (text to image)
+
 ```
 ┌─────────────────────────────────────────────────┐
+│  [ Text ]  [ Text and Reference ]                      │  ← tab bar
+├─────────────────────────────────────────────────┤
 │  [Freeform prompt text box                    ] │
 │  [Generate] [# variations: 2]                   │
 ├────────────────────┬────────────────────────────┤
@@ -138,6 +163,51 @@ Clicking a suggestion appends it to the prompt (or inserts at cursor).
 - Columns = model outputs (configurable images/model, default 1)
 - Click an image to view full size
 - Rows accumulate as you generate more, so you can scroll and compare
+
+#### Text and Reference tab (text + image to image)
+
+```
+┌─────────────────────────────────────────────────┐
+│  [ Text ]  [ Text and Reference ]                      │  ← tab bar
+├─────────────────────────────────────────────────┤
+│  Model selector (Gemini and GPT only)           │
+├─────────────────────────────────────────────────┤
+│  ┌─────────────────────┬───────────────────────┐│
+│  │                     │                       ││
+│  │   Image input       │   Text prompt         ││
+│  │                     │                       ││
+│  │  Drop / click to    │   [text area      ]   ││  ← taller row, split 50/50
+│  │  upload, or paste   │                       ││
+│  │                     │                       ││
+│  │  [thumbnail when    │                       ││
+│  │   image is loaded]  │                       ││
+│  └─────────────────────┴───────────────────────┘│
+│  [Generate]  ← disabled until image is provided │
+├─────────────────────────────────────────────────┤
+│  Results Grid (same component as Text)         │
+│                                                 │
+│  Prompt: "repaint in watercolour style"         │
+│  ┌─────────────────┬─────────────────┐          │
+│  │  gemini         │  openai         │          │
+│  │                 │                 │          │
+│  │   [img]         │   [img]         │          │
+│  └─────────────────┴─────────────────┘          │
+└─────────────────────────────────────────────────┘
+```
+
+**Constraints vs Text:**
+- Single prompt row only (no queue, no variations)
+- No photography suggestions panel
+- Only models that support image input are shown: `gemini/gemini-3.1-flash-image-preview` and `openai/gpt-image-1-mini`
+- Generate button is disabled until an image is loaded
+- Results grid is the same shared component as Text
+
+**Image input slot:**
+- Left half of the prompt row, same height as the text side
+- Empty state: drag-and-drop zone with "Drop image here, click to browse, or paste" hint
+- Accepts: file picker (any common image format), clipboard paste (Ctrl/Cmd+V)
+- Loaded state: shows a thumbnail of the image with a remove (×) button
+- Image stored as a base64 data URI in React state; never written to disk
 
 ### Error Handling
 - Per-model errors are shown inline in the results grid cell (not a toast)
@@ -184,6 +254,8 @@ Remote and local groups run concurrently with each other; only models within the
 4. Local models are dispatched one at a time in order; the first starts immediately (concurrently with the remotes), each subsequent one waits for the previous to finish
 5. As each call completes (in any order), the backend emits an SSE event with the result or error
 6. Frontend renders images in the grid as events arrive — cells fill in as they complete, not left-to-right
+
+For Text and Reference, the POST body includes an additional `imageDataUri` field (a base64 data URI). The dispatch layer passes this to the Gemini and OpenAI clients; local models (Ollama, ComfyUI) never appear in Text and Reference so they never receive it. The `imageDataUri` is optional in the API contract — its presence signals image-input mode.
 
 **Example** — gemini, openai, flux2-klein, z-image-turbo selected:
 ```
@@ -234,13 +306,36 @@ t=?                              z-image-turbo  ──────────�
 
 ### Gemini
 - **Endpoint:** `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}`
-- **Request:** `{"contents": [{"parts": [{"text": "..."}]}], "generationConfig": {"responseModalities": ["IMAGE"]}}`
+- **Text-only request:**
+  ```json
+  {"contents": [{"parts": [{"text": "..."}]}], "generationConfig": {"responseModalities": ["IMAGE"]}}
+  ```
+- **Image input request (Text and Reference):** add an `inlineData` part alongside the text part:
+  ```json
+  {
+    "contents": [{
+      "parts": [
+        {"text": "..."},
+        {"inlineData": {"mimeType": "image/png", "data": "<base64>"}}
+      ]
+    }],
+    "generationConfig": {"responseModalities": ["IMAGE"]}
+  }
+  ```
 - **Response:** `candidates[0].content.parts[]` — find part with `inlineData.data` (base64) and `inlineData.mimeType`
 
 ### OpenAI
+**Text-only (Text):**
 - **Endpoint:** `POST https://api.openai.com/v1/images/generations`
 - **Request:** `{"model": "gpt-image-1-mini", "prompt": "...", "n": 1, "size": "1024x1024", "response_format": "b64_json"}`
 - **Response:** `data[0].b64_json` (base64 PNG)
+- Auth: `Authorization: Bearer ${OPENAI_API_KEY}` header
+
+**Image input (Text and Reference):**
+- **Endpoint:** `POST https://api.openai.com/v1/images/edits`
+- **Request:** `multipart/form-data` with fields: `model`, `prompt`, `n`, `size`, and `image` (PNG file bytes)
+- The base64 data URI from the frontend is decoded to raw bytes and sent as a file field
+- **Response:** `data[0].b64_json` (base64 PNG) — same shape as the generations endpoint
 - Auth: `Authorization: Bearer ${OPENAI_API_KEY}` header
 
 ## 8. Debug Panel
@@ -276,8 +371,11 @@ Unit tests cover the backend API route logic and utility functions. UI component
 |------|---------|
 | Model dispatch | `gemini/...` routes to Gemini client; `openai/...` routes to OpenAI client; bare name routes to Ollama |
 | Model list filtering | Gemini excluded when `GEMINI_API_KEY` unset; OpenAI excluded when `OPENAI_API_KEY` unset |
+| Text and Reference model filtering | Only `gemini/` and `openai/` models returned for image-input mode |
 | Base64 utilities | Encode/decode round-trips; data URI construction |
 | Request builders | Correct shape of Ollama, ComfyUI, Gemini, and OpenAI payloads given a prompt + options |
+| Gemini image input | Request includes `inlineData` part when `imageDataUri` is provided; omits it when not |
+| OpenAI image input | Uses `/images/edits` endpoint (multipart) when `imageDataUri` provided; uses `/images/generations` otherwise |
 | Variation parser | LLM response string → array of clean variation strings |
 
 ### What Not to Test

@@ -7,12 +7,15 @@ import VariationsPanel from "@/components/VariationsPanel";
 import ResultsGrid from "@/components/ResultsGrid";
 import ImageModal from "@/components/ImageModal";
 import QueuePanel from "@/components/QueuePanel";
+import TabBar from "@/components/TabBar";
+import ReferenceTab from "@/components/ReferenceTab";
+import { streamGenerationEvents, applySSEEvent } from "@/lib/generation";
 import type {
   PromptRow,
   GeneratedImage,
-  ImageSSEEvent,
   ModelsResponse,
 } from "@/types";
+import type { ActiveTab } from "@/components/TabBar";
 
 const DEFAULT_MODELS = ["x/flux2-klein:latest", "x/z-image-turbo:latest"];
 
@@ -28,82 +31,10 @@ interface ModalState {
 }
 
 // ---------------------------------------------------------------------------
-// SSE streaming helper — shared by runGeneration, handleRetry
-// ---------------------------------------------------------------------------
-async function streamGenerationEvents(
-  prompt: string,
-  models: string[],
-  imagesPerModel: number,
-  options: { width?: number; height?: number; steps?: number },
-  onEvent: (event: ImageSSEEvent) => void
-): Promise<void> {
-  const response = await fetch("/api/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, models, imagesPerModel, ...options }),
-  });
-
-  if (!response.ok || !response.body) {
-    const errText = await response.text().catch(() => "");
-    let errMsg = `Generation failed: ${response.status}`;
-    try {
-      const parsed = JSON.parse(errText) as { error?: string };
-      if (parsed.error) errMsg = parsed.error;
-    } catch { /* raw text */ }
-    throw new Error(errMsg);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        onEvent(JSON.parse(payload) as ImageSSEEvent);
-      } catch { continue; }
-    }
-  }
-}
-
-// Apply a single SSE event to a row's results (pure helper)
-function applySSEEvent(row: PromptRow, event: ImageSSEEvent): PromptRow {
-  const results = [...row.results];
-  const idx = results.findIndex((r) => r.model === event.model);
-
-  if (event.error) {
-    if (idx >= 0) results[idx] = { ...results[idx], error: event.error };
-    else results.push({ model: event.model, images: [], error: event.error });
-  } else {
-    const newImage: GeneratedImage = {
-      dataUri: event.dataUri,
-      durationMs: event.durationMs,
-    };
-    if (idx >= 0) {
-      results[idx] = { ...results[idx], images: [...results[idx].images, newImage] };
-    } else {
-      results.push({ model: event.model, images: [newImage] });
-    }
-  }
-
-  return { ...row, results };
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 export default function HomePage() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("text");
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<PromptRow[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -322,71 +253,79 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main layout */}
-      <div className="max-w-screen-xl mx-auto px-6 py-6 flex gap-6">
-        {/* Left sidebar: Suggestions */}
-        <aside className="w-56 shrink-0 hidden lg:block">
-          <SuggestionsPanel onInsert={handleInsertTerm} />
-        </aside>
+      {/* Tab bar */}
+      <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* Center: prompt + variations + queue + results */}
-        <main className="flex-1 min-w-0 flex flex-col gap-6">
-          {/* Prompt Input */}
-          <section className="flex flex-col gap-4 bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
-            <PromptInput
-              value={prompt}
-              onChange={setPrompt}
-              onGenerate={handleGenerate}
-              isGenerating={isGenerating}
-              availableModels={
-                availableImageModels.length > 0 ? availableImageModels : DEFAULT_MODELS
-              }
-            />
-          </section>
+      {/* Text tab */}
+      {activeTab === "text" && (
+        <div className="max-w-screen-xl mx-auto px-6 py-6 flex gap-6">
+          {/* Left sidebar: Suggestions */}
+          <aside className="w-56 shrink-0 hidden lg:block">
+            <SuggestionsPanel onInsert={handleInsertTerm} />
+          </aside>
 
-          {/* Variations Panel */}
-          <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
-            <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-3">
-              Prompt Variations
-            </h2>
-            <VariationsPanel
-              basePrompt={prompt}
-              onRunVariations={handleRunVariations}
-            />
-          </section>
+          {/* Center: prompt + variations + queue + results */}
+          <main className="flex-1 min-w-0 flex flex-col gap-6">
+            {/* Prompt Input */}
+            <section className="flex flex-col gap-4 bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
+              <PromptInput
+                value={prompt}
+                onChange={setPrompt}
+                onGenerate={handleGenerate}
+                isGenerating={isGenerating}
+                availableModels={
+                  availableImageModels.length > 0 ? availableImageModels : DEFAULT_MODELS
+                }
+              />
+            </section>
 
-          {/* Prompt Queue */}
-          <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
-            <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-3">
-              Prompt Queue
-            </h2>
-            <QueuePanel
-              queue={queue}
-              isRunning={isQueueRunning}
-              onAdd={handleAddToQueue}
-              onRemove={handleRemoveFromQueue}
-              onClear={handleClearQueue}
-              onRun={handleRunQueue}
-              onStop={handleStopQueue}
-            />
-          </section>
+            {/* Variations Panel */}
+            <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
+              <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-3">
+                Prompt Variations
+              </h2>
+              <VariationsPanel
+                basePrompt={prompt}
+                onRunVariations={handleRunVariations}
+              />
+            </section>
 
-          {/* Results */}
-          <section className="flex flex-col gap-3">
-            <ResultsGrid
-              rows={rows}
-              models={selectedModels}
-              imagesPerModel={imagesPerModel}
-              onExpand={handleExpand}
-              onRetry={handleRetry}
-              onClear={() => setRows([])}
-            />
-          </section>
-        </main>
-      </div>
+            {/* Prompt Queue */}
+            <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800">
+              <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider mb-3">
+                Prompt Queue
+              </h2>
+              <QueuePanel
+                queue={queue}
+                isRunning={isQueueRunning}
+                onAdd={handleAddToQueue}
+                onRemove={handleRemoveFromQueue}
+                onClear={handleClearQueue}
+                onRun={handleRunQueue}
+                onStop={handleStopQueue}
+              />
+            </section>
 
-      {/* Image Modal */}
-      {modal && (
+            {/* Results */}
+            <section className="flex flex-col gap-3">
+              <ResultsGrid
+                rows={rows}
+                models={selectedModels}
+                imagesPerModel={imagesPerModel}
+                onExpand={handleExpand}
+                onRetry={handleRetry}
+                onClear={() => setRows([])}
+              />
+            </section>
+          </main>
+        </div>
+      )}
+
+      {/* Text and Reference tab */}
+      {activeTab === "reference" && <ReferenceTab />}
+
+      {/* Image Modal (Text tab only — ReferenceTab manages its own) */}
+      {activeTab === "text" && modal && (
         <ImageModal
           dataUri={modal.dataUri}
           model={modal.model}

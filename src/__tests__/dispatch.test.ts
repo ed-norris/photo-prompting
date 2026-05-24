@@ -26,7 +26,7 @@ beforeEach(() => jest.clearAllMocks());
 describe("dispatchGenerate routing", () => {
   it("routes gemini/ prefix to Gemini with prefix stripped", async () => {
     await dispatchGenerate("gemini/gemini-3.1-flash-image-preview", prompt, opts);
-    expect(geminiGenerate).toHaveBeenCalledWith("gemini-3.1-flash-image-preview", prompt, opts);
+    expect(geminiGenerate).toHaveBeenCalledWith("gemini-3.1-flash-image-preview", prompt, opts, undefined);
     expect(ollamaGenerate).not.toHaveBeenCalled();
   });
 
@@ -38,7 +38,7 @@ describe("dispatchGenerate routing", () => {
 
   it("routes openai/ prefix to OpenAI with prefix stripped", async () => {
     await dispatchGenerate("openai/gpt-image-1-mini", prompt, opts);
-    expect(openaiGenerate).toHaveBeenCalledWith("gpt-image-1-mini", prompt, opts);
+    expect(openaiGenerate).toHaveBeenCalledWith("gpt-image-1-mini", prompt, opts, undefined);
     expect(ollamaGenerate).not.toHaveBeenCalled();
   });
 
@@ -52,6 +52,53 @@ describe("dispatchGenerate routing", () => {
   it("passes options through unchanged", async () => {
     const customOpts = { width: 512, height: 768, steps: 20 };
     await dispatchGenerate("openai/gpt-image-1-mini", prompt, customOpts);
-    expect(openaiGenerate).toHaveBeenCalledWith("gpt-image-1-mini", prompt, customOpts);
+    expect(openaiGenerate).toHaveBeenCalledWith("gpt-image-1-mini", prompt, customOpts, undefined);
+  });
+});
+
+describe("dispatchGenerate imageDataUri threading", () => {
+  const imageDataUri = "data:image/png;base64,abc123";
+
+  it("forwards imageDataUri to Gemini as 4th argument", async () => {
+    await dispatchGenerate("gemini/gemini-3.1-flash-image-preview", prompt, {
+      ...opts,
+      imageDataUri,
+    });
+    expect(geminiGenerate).toHaveBeenCalledWith(
+      "gemini-3.1-flash-image-preview",
+      prompt,
+      opts,
+      imageDataUri
+    );
+  });
+
+  it("forwards imageDataUri to OpenAI as 4th argument", async () => {
+    await dispatchGenerate("openai/gpt-image-1-mini", prompt, {
+      ...opts,
+      imageDataUri,
+    });
+    expect(openaiGenerate).toHaveBeenCalledWith(
+      "gpt-image-1-mini",
+      prompt,
+      opts,
+      imageDataUri
+    );
+  });
+
+  it("does NOT forward imageDataUri to Ollama", async () => {
+    await dispatchGenerate("x/flux2-klein:latest", prompt, {
+      ...opts,
+      imageDataUri,
+    });
+    // Ollama receives only the rest opts (no imageDataUri)
+    expect(ollamaGenerate).toHaveBeenCalledWith("x/flux2-klein:latest", prompt, opts);
+  });
+
+  it("does NOT forward imageDataUri to ComfyUI", async () => {
+    await dispatchGenerate("comfyui/flux-dev1", prompt, {
+      ...opts,
+      imageDataUri,
+    });
+    expect(comfyuiGenerate).toHaveBeenCalledWith("flux-dev1", prompt, opts);
   });
 });
