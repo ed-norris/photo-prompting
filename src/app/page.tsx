@@ -9,6 +9,7 @@ import ImageModal from "@/components/ImageModal";
 import QueuePanel from "@/components/QueuePanel";
 import TabBar from "@/components/TabBar";
 import ReferenceTab from "@/components/ReferenceTab";
+import VideoTab from "@/components/VideoTab";
 import { streamGenerationEvents, applySSEEvent } from "@/lib/generation";
 import type {
   PromptRow,
@@ -323,6 +324,9 @@ export default function HomePage() {
 
       {/* Text and Reference tab */}
       {activeTab === "reference" && <ReferenceTab />}
+
+      {/* Video tab */}
+      {activeTab === "video" && <VideoTab />}
 
       {/* Image Modal (Text tab only — ReferenceTab manages its own) */}
       {activeTab === "text" && modal && (

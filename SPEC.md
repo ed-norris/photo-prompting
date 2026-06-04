@@ -1,19 +1,20 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-05-24 (rev 4)
-> **Confidence:** 90%
+> **Last updated:** 2026-06-04 (rev 5)
+> **Confidence:** 95%
 
 ---
 
 ## 1. Overview
 
-A personal web-based tool for evaluating and improving image generation prompts. The app has two modes, selected by a tab bar at the top of the page:
+A personal web-based tool for evaluating and improving image and video generation prompts. The app has three modes, selected by a tab bar at the top of the page:
 
 | Tab | Label | Purpose |
 |-----|-------|---------|
 | Text → Image | **Text** | Run text prompts through multiple models and compare results side by side |
 | Text + Image → Image | **Text and Reference** | Supply a reference image alongside a text prompt; only models that support image input are shown |
+| Text + Images → Video | **Video** | Supply a text prompt and 0–3 reference images to generate a video via Gemini Veo |
 
 Built for a class in AI, photography, and cinema.
 
@@ -73,9 +74,21 @@ Built for a class in AI, photography, and cinema.
 - Only appears in the model list when `OPENAI_API_KEY` is set in `.env.local`
 - Size can be overridden via Advanced options (1024×1024, 512×512); steps not supported
 
+### v1 — Remote (Gemini Veo — Video only)
+
+| Model | Provider | Notes |
+|-------|----------|-------|
+| `veo/veo-3.1-generate-preview` | Google (Gemini API) | API key required via `GEMINI_API_KEY` env var |
+| `veo/veo-3.1-fast-generate-preview` | Google (Gemini API) | API key required via `GEMINI_API_KEY` env var |
+| `veo/veo-2.0-generate-001` | Google (Gemini API) | API key required via `GEMINI_API_KEY` env var |
+
+- Video-only models; never appear in the Text or Text and Reference tabs
+- Only appear when `GEMINI_API_KEY` is set in `.env.local`
+- Generation is async (long-running operation) — see Section 6 for the flow
+
 ## 4. Prompt System
 
-> Sections 4.2 and 4.3 apply to the **Text tab only**. The Text and Reference tab has a freeform text input but no suggestions panel and no variations.
+> Sections 4.2 and 4.3 apply to the **Text tab only**. The Text and Reference tab and the Video tab have a freeform text input but no suggestions panel and no variations.
 
 ### 4.1 Freeform Input
 - Single text box for writing prompts
@@ -120,11 +133,11 @@ A tab bar appears at the very top of the page, above all other content:
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  [ Text ]  [ Text and Reference ]                       │
+│  [ Text ]  [ Text and Reference ]  [ Video ]     │
 └──────────────────────────────────────────────────┘
 ```
 
-Switching tabs replaces the entire content area. The selected model list, advanced options, and results grid are independent per tab (not shared).
+Switching tabs replaces the entire content area. The selected model list, advanced options, and results are independent per tab (not shared).
 
 ---
 
@@ -134,7 +147,7 @@ Switching tabs replaces the entire content area. The selected model list, advanc
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  [ Text ]  [ Text and Reference ]                      │  ← tab bar
+│  [ Text ]  [ Text and Reference ]  [ Video ]    │  ← tab bar
 ├─────────────────────────────────────────────────┤
 │  [Freeform prompt text box                    ] │
 │  [Generate] [# variations: 2]                   │
@@ -168,7 +181,7 @@ Switching tabs replaces the entire content area. The selected model list, advanc
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  [ Text ]  [ Text and Reference ]                      │  ← tab bar
+│  [ Text ]  [ Text and Reference ]  [ Video ]    │  ← tab bar
 ├─────────────────────────────────────────────────┤
 │  Model selector (Gemini and GPT only)           │
 ├─────────────────────────────────────────────────┤
@@ -216,6 +229,60 @@ Switching tabs replaces the entire content area. The selected model list, advanc
 - Loaded state: shows a thumbnail with hover controls — **Replace** (re-opens file picker) and **Remove** (clears the slot)
 - Image stored as a base64 PNG data URI in React state; never written to disk
 
+#### Video tab (text + 0–3 images → video)
+
+```
+┌─────────────────────────────────────────────────┐
+│  [ Text ]  [ Text and Reference ]  [ Video ]    │  ← tab bar
+├─────────────────────────────────────────────────┤
+│  Model selector (Veo models only)               │
+├─────────────────────────────────────────────────┤
+│  ┌──────────┬──────────┬──────────┐             │
+│  │          │          │          │             │
+│  │ Image 1  │ Image 2  │ Image 3  │  ← drop zones
+│  │ (drop /  │ (drop /  │ (drop /  │
+│  │  paste)  │  paste)  │  paste)  │             │
+│  └──────────┴──────────┴──────────┘             │
+│                                                 │
+│  [Prompt text area                            ] │
+│                                                 │
+│  [Generate]  ⌘↵                                │
+├─────────────────────────────────────────────────┤
+│  Video Results                                  │
+│                                                 │
+│  Prompt: "make this man pick up the vase"       │
+│  ┌─────────────────────────────────────────┐    │
+│  │  veo-3.1-generate-preview  •  48s gen   │    │
+│  │  ┌─────────────────────────────────┐    │    │
+│  │  │  <video player>                 │    │    │
+│  │  └─────────────────────────────────┘    │    │
+│  │  [Download]                             │    │
+│  └─────────────────────────────────────────┘    │
+│                                                 │
+│  (repeat card for each generation run)          │
+└─────────────────────────────────────────────────┘
+```
+
+**Constraints:**
+- Single prompt at a time (no queue, no variations, no suggestions)
+- Only Veo models shown (gated on `GEMINI_API_KEY`)
+- 3 fixed image drop zones; all are optional (0 images = text-to-video)
+- Generate button enabled as long as a prompt is entered and a model is selected
+- One active generation at a time; button disabled while generating
+
+**Reference image slots:**
+- Same `ImageInput` component as the Text and Reference tab
+- Each slot independently accepts drag-and-drop, file picker, and paste
+- When an image is loaded, shows thumbnail with Replace / Remove controls
+- Images passed to Veo as inline base64 data; Veo treats them as reference material (style, subjects, scenes) and/or animation start frames depending on the prompt
+
+**Results:**
+- Each generation appends a new card below
+- Card shows: model name, generation time, inline `<video>` player (autoplay off, controls visible), and a Download button
+- While generating, the card shows a spinner with elapsed seconds ticking up (generation takes 1–5 min)
+- On error, the card shows the error message with no retry (user re-runs manually)
+- Videos are saved to `public/videos/{id}.mp4` on the server and served as `/videos/{id}.mp4` by Next.js static file serving
+
 ### Error Handling
 - Per-model errors are shown inline in the results grid cell (not a toast)
 - Each failed cell shows the error message and a **Retry** button
@@ -239,10 +306,13 @@ Next.js API Routes (backend)
     │       └── flux-dev1 (Flux Dev 1 checkpoint)
     │
     ├──► Gemini API (generativelanguage.googleapis.com)
-    │       └── gemini-3.1-flash-image-preview
+    │       ├── gemini-3.1-flash-image-preview   (image generation)
+    │       └── veo-3.1-*, veo-2.0-*             (video generation, long-running ops)
     │
-    └──► OpenAI API (api.openai.com)
-            └── gpt-image-1-mini
+    ├──► OpenAI API (api.openai.com)
+    │       └── gpt-image-1-mini
+    │
+    └──► public/videos/                          (local video file storage)
 ```
 
 ### Model Classification: Remote vs Local
@@ -263,6 +333,26 @@ Remote and local groups run concurrently with each other; only models within the
 6. Frontend renders images in the grid as events arrive — cells fill in as they complete, not left-to-right
 
 For Text and Reference, the POST body includes an additional `imageDataUri` field (a base64 data URI). The dispatch layer passes this to the Gemini and OpenAI clients; local models (Ollama, ComfyUI) never appear in Text and Reference so they never receive it. The `imageDataUri` is optional in the API contract — its presence signals image-input mode.
+
+### Video Generation Flow
+
+Video generation uses a separate `/api/generate-video` SSE route (not `/api/generate`) because the Veo API is long-running and async:
+
+1. User submits prompt + up to 3 reference image data URIs → POST `/api/generate-video` (SSE)
+2. Backend POSTs to Gemini's `predictLongRunning` endpoint for the selected Veo model
+3. Gemini immediately returns an operation name (e.g. `operations/abc123`)
+4. Backend polls `GET /v1beta/{operation_name}` every 10 seconds until `done: true`
+5. When done, the response contains a video URI (requires API key in `x-goog-api-key` header to download)
+6. Backend downloads the video bytes and writes them to `public/videos/{id}.mp4`
+7. Backend emits SSE done event with `{ filePath: "/videos/{id}.mp4", durationMs }`
+8. Frontend renders a `<video>` player pointing at the local path
+
+SSE events emitted during the flow:
+- `{ status: "generating", elapsedMs }` — emitted every 10s during polling so the UI can show a live elapsed timer
+- `{ status: "done", filePath, durationMs }` — generation complete, video ready
+- `{ status: "error", error }` — generation or download failed
+
+Reference images are passed inline as base64 in the `instances` array of the `predictLongRunning` request. With 0 images the request has only the text prompt (text-to-video). Veo treats all provided images as reference material for content, style, and subjects — the prompt instructs how they are used.
 
 **Example** — gemini, openai, flux2-klein, z-image-turbo selected:
 ```
@@ -331,6 +421,44 @@ t=?                              z-image-turbo  ──────────�
   ```
 - **Response:** `candidates[0].content.parts[]` — find part with `inlineData.data` (base64) and `inlineData.mimeType`
 
+### Gemini Veo (Video)
+- **Submit endpoint:** `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:predictLongRunning?key={GEMINI_API_KEY}`
+- **Text-only request:**
+  ```json
+  {
+    "instances": [{ "prompt": "..." }],
+    "parameters": { "aspectRatio": "16:9" }
+  }
+  ```
+- **With reference images:**
+  ```json
+  {
+    "instances": [{
+      "prompt": "...",
+      "image": { "bytesBase64Encoded": "<base64>", "mimeType": "image/png" }
+    }],
+    "parameters": { "aspectRatio": "16:9" }
+  }
+  ```
+  _(Multiple images: additional images passed as `referenceImages` array with `referenceType: "asset"`)_
+- **Submit response:** `{ "name": "operations/abc123" }` — operation name for polling
+- **Poll endpoint:** `GET https://generativelanguage.googleapis.com/v1beta/{operation_name}` with `x-goog-api-key: {GEMINI_API_KEY}` header
+- **Poll response (in-progress):** `{ "done": false }`
+- **Poll response (complete):**
+  ```json
+  {
+    "done": true,
+    "response": {
+      "generateVideoResponse": {
+        "generatedSamples": [{ "video": { "uri": "https://..." } }]
+      }
+    }
+  }
+  ```
+- **Download:** `GET {uri}` with `x-goog-api-key: {GEMINI_API_KEY}` header → raw MP4 bytes
+- Generated videos are stored on Google's servers for 2 days; the local copy in `public/videos/` persists for the session
+- Poll interval: 10 seconds
+
 ### OpenAI
 **Text-only (Text):**
 - **Endpoint:** `POST https://api.openai.com/v1/images/generations`
@@ -379,10 +507,12 @@ Unit tests cover the backend API route logic and utility functions. UI component
 | Model dispatch | `gemini/...` routes to Gemini client; `openai/...` routes to OpenAI client; bare name routes to Ollama |
 | Model list filtering | Gemini excluded when `GEMINI_API_KEY` unset; OpenAI excluded when `OPENAI_API_KEY` unset |
 | Text and Reference model filtering | Only `gemini/` and `openai/` models returned for image-input mode |
+| Video model filtering | Only `veo/` models returned for video mode; excluded when `GEMINI_API_KEY` unset |
 | Base64 utilities | Encode/decode round-trips; data URI construction |
 | Request builders | Correct shape of Ollama, ComfyUI, Gemini, and OpenAI payloads given a prompt + options |
 | Gemini image input | Request includes `inlineData` part when `imageDataUri` is provided; omits it when not |
 | OpenAI image input | Uses `/images/edits` endpoint (multipart) when `imageDataUri` provided; uses `/images/generations` otherwise |
+| Veo request builder | Correct `predictLongRunning` shape with and without reference images |
 | Variation parser | LLM response string → array of clean variation strings |
 
 ### What Not to Test

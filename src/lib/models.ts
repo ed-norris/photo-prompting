@@ -30,3 +30,15 @@ export function buildImageInputModels(
 ): ModelInfo[] {
   return buildStaticImageModels(env).filter((m) => m.imageInput);
 }
+
+/** Returns Veo video generation models (Video tab). Requires GEMINI_API_KEY. */
+export function buildVideoModels(
+  env: Record<string, string | undefined> = process.env
+): ModelInfo[] {
+  if (!env.GEMINI_API_KEY) return [];
+  return [
+    { name: "veo/veo-3.1-generate-preview", size: "remote" },
+    { name: "veo/veo-3.1-fast-generate-preview", size: "remote" },
+    { name: "veo/veo-2.0-generate-001", size: "remote" },
+  ];
+}

@@ -1,6 +1,6 @@
 "use client";
 
-export type ActiveTab = "text" | "reference";
+export type ActiveTab = "text" | "reference" | "video";
 
 interface TabBarProps {
   activeTab: ActiveTab;
@@ -11,6 +11,7 @@ export default function TabBar({ activeTab, onTabChange }: TabBarProps) {
   const tabs: { id: ActiveTab; label: string }[] = [
     { id: "text", label: "Text" },
     { id: "reference", label: "Text and Reference" },
+    { id: "video", label: "Video" },
   ];
 
   return (

@@ -66,6 +66,27 @@ export interface ModelInfo {
 export interface ModelsResponse {
   imageModels: ModelInfo[];
   textModels: ModelInfo[];
+  videoModels?: ModelInfo[];
+}
+
+// Video generation
+export interface VideoRow {
+  id: string;
+  prompt: string;
+  model: string;
+  status: "generating" | "complete" | "error";
+  filePath?: string;
+  error?: string;
+  durationMs?: number;
+  startedAt: number;
+}
+
+export interface VideoSSEEvent {
+  status: "generating" | "done" | "error";
+  elapsedMs?: number;
+  filePath?: string;
+  durationMs?: number;
+  error?: string;
 }
 
 // Debug info captured at generation time
