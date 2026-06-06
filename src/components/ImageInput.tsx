@@ -92,9 +92,25 @@ export default function ImageInput({ value, onChange }: ImageInputProps) {
   async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
 
-    // 1. File items — covers Finder, Obsidian, and other Electron apps.
-    //    Accept items with an image MIME type OR an empty type (Obsidian often
-    //    omits the MIME type when dragging attachments).
+    const IMAGE_EXT = /\.(png|jpe?g|webp|gif|heic|avif|bmp|tiff?)$/i;
+
+    // 1. dataTransfer.files — the most reliable path for native file drags.
+    //    Electron apps (including Obsidian) populate .files correctly even when
+    //    the MIME type is empty, so we accept any file whose name has an image
+    //    extension as well as anything with an image/* MIME type.
+    const filesArray = Array.from(e.dataTransfer.files);
+    const imageFile = filesArray.find(
+      (f) => f.type.startsWith("image/") || IMAGE_EXT.test(f.name)
+    );
+    if (imageFile) {
+      await processFile(imageFile, onChange);
+      return;
+    }
+
+    // 2. dataTransfer.items — secondary fallback for cases where .files is
+    //    empty but items are present (e.g. in-app drags, some web apps).
+    //    getAsFile() can return null for Electron items with empty type, so we
+    //    only proceed when we actually get a File object back.
     const items = Array.from(e.dataTransfer.items);
     const fileItem = items.find(
       (item) =>
@@ -103,58 +119,81 @@ export default function ImageInput({ value, onChange }: ImageInputProps) {
     );
     if (fileItem) {
       const file = fileItem.getAsFile();
-      if (file) {
+      if (file && (file.type.startsWith("image/") || IMAGE_EXT.test(file.name))) {
         await processFile(file, onChange);
         return;
       }
     }
 
-    // 2. URI list — covers:
-    //    • data: URIs from dragged <img> elements (generated results in this app)
-    //    • file:// or http:// URLs provided by some apps
+    // 3. URI list — covers data: URIs (in-app generated image drags) and
+    //    http(s):// URLs. file:// URIs are skipped: browsers block fetch() for
+    //    local paths, and Obsidian's file:// drags are already caught above via
+    //    .files, so silently ignoring them here is correct.
     const uriList = e.dataTransfer.getData("text/uri-list");
     if (uriList) {
       const uris = uriList
         .split(/\r?\n/)
         .map((u) => u.trim())
         .filter((u) => u.length > 0 && !u.startsWith("#"));
-      if (uris.length > 0) {
-        const uri = uris[0];
+      for (const uri of uris) {
         if (uri.startsWith("data:image/")) {
-          // In-app generated image drag — data URI is already available
           const { dataUri, width, height } = await normalizeImage(uri);
           onChange(dataUri, { width, height });
           return;
         }
-        // file:// or http:// — fetch and convert via canvas
-        try {
-          const resp = await fetch(uri);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            const raw = await fileToDataUri(
-              new File([blob], "image", { type: blob.type || "image/png" })
-            );
-            const { dataUri, width, height } = await normalizeImage(raw);
-            onChange(dataUri, { width, height });
-            return;
+        if (uri.startsWith("http://") || uri.startsWith("https://")) {
+          try {
+            const resp = await fetch(uri);
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const raw = await fileToDataUri(
+                new File([blob], "image", { type: blob.type || "image/png" })
+              );
+              const { dataUri, width, height } = await normalizeImage(raw);
+              onChange(dataUri, { width, height });
+              return;
+            }
+          } catch {
+            /* cross-origin or unavailable — try next URI */
           }
-        } catch {
-          /* cross-origin or unavailable — fall through */
+        }
+
+        // app:// is Obsidian's internal Electron protocol — the pathname is the
+        // real local filesystem path. file:// URIs work the same way.
+        // Both are proxied through /api/local-file since browsers can't fetch them.
+        if (uri.startsWith("app://") || uri.startsWith("file://")) {
+          try {
+            const url = new URL(uri);
+            // app://  → host is an Obsidian app hash, pathname is the absolute path
+            // file:// → host is empty (""), pathname is the absolute path
+            const localPath = decodeURIComponent(url.pathname);
+            const resp = await fetch(
+              `/api/local-file?path=${encodeURIComponent(localPath)}`
+            );
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const raw = await fileToDataUri(
+                new File([blob], "image", { type: blob.type || "image/png" })
+              );
+              const { dataUri, width, height } = await normalizeImage(raw);
+              onChange(dataUri, { width, height });
+              return;
+            }
+          } catch {
+            /* unreadable — try next URI */
+          }
         }
       }
     }
 
-    // 3. HTML fallback — some apps (e.g. web browsers, Notion) put an
+    // 4. HTML fallback — some apps (e.g. web browsers, Notion) include an
     //    <img src="..."> in text/html; extract and use the src.
     const html = e.dataTransfer.getData("text/html");
     if (html) {
       const match = html.match(/src=["']([^"']+)["']/i);
-      if (match?.[1]) {
-        const src = match[1];
-        if (src.startsWith("data:image/")) {
-          const { dataUri, width, height } = await normalizeImage(src);
-          onChange(dataUri, { width, height });
-        }
+      if (match?.[1]?.startsWith("data:image/")) {
+        const { dataUri, width, height } = await normalizeImage(match[1]);
+        onChange(dataUri, { width, height });
       }
     }
   }

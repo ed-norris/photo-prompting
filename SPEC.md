@@ -430,17 +430,36 @@ t=?                              z-image-turbo  ──────────�
     "parameters": { "aspectRatio": "16:9" }
   }
   ```
-- **With reference images:**
+- **With reference images (1–3):**
   ```json
   {
     "instances": [{
       "prompt": "...",
-      "image": { "bytesBase64Encoded": "<base64>", "mimeType": "image/png" }
+      "referenceImages": [
+        {
+          "image": { "bytesBase64Encoded": "<base64>", "mimeType": "image/png" },
+          "referenceType": "asset"
+        }
+      ]
     }],
     "parameters": { "aspectRatio": "16:9" }
   }
   ```
-  _(Multiple images: additional images passed as `referenceImages` array with `referenceType: "asset"`)_
+  Verified against Vertex AI docs: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
+
+#### Reference image format — discovery notes (2026-06-04)
+
+Three formats were tried before finding the correct one. Recorded here so we don't repeat it.
+
+| Attempt | Format used | API error |
+|---------|-------------|-----------|
+| 1 | `referenceImage: { image: { bytesBase64Encoded, mimeType } }` with `referenceType: "REFERENCE_TYPE_SUBJECT"` | `` `referenceImage` isn't supported by this model `` — wrong wrapper field name (singular, and extra nesting level) |
+| 2 | `image: { inlineData: { data, mimeType } }` with `referenceType: "asset"` | `` `inlineData` isn't supported by this model `` — `inlineData` is the Gemini `generateContent` encoding style, not accepted here |
+| 3 ✓ | `image: { bytesBase64Encoded, mimeType }` with `referenceType: "asset"` | **Accepted** — confirmed by Vertex AI docs |
+
+**Key insight:** `predictLongRunning` uses Vertex AI–style image encoding (`bytesBase64Encoded` + `mimeType` flat inside `image`), not the Gemini `generateContent` style (`inlineData`). The two APIs share an API key but use different field conventions.
+
+**Note on `referenceType`:** `"style"` is also documented but Veo 3.1 does not support it — only `"asset"` works. Style references require `veo-2.0-generate-exp`.
 - **Submit response:** `{ "name": "operations/abc123" }` — operation name for polling
 - **Poll endpoint:** `GET https://generativelanguage.googleapis.com/v1beta/{operation_name}` with `x-goog-api-key: {GEMINI_API_KEY}` header
 - **Poll response (in-progress):** `{ "done": false }`

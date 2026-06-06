@@ -24,18 +24,17 @@ export async function generateVideo(
   const modelName = model.replace(/^veo\//, "");
   const start = Date.now();
 
-  // Build the request instance — reference images passed as inline base64
+  // Build the request instance — reference images passed as inline base64.
+  // Veo 3.1 uses referenceImages[].image.inlineData (not bytesBase64Encoded)
+  // with referenceType "asset" for all image inputs, regardless of count.
   const instance: Record<string, unknown> = { prompt };
 
-  if (imageDataUris.length === 1) {
-    const { mimeType, data } = parseDataUri(imageDataUris[0]);
-    instance.image = { bytesBase64Encoded: data, mimeType };
-  } else if (imageDataUris.length > 1) {
+  if (imageDataUris.length > 0) {
     instance.referenceImages = imageDataUris.map((uri) => {
       const { mimeType, data } = parseDataUri(uri);
       return {
-        referenceType: "REFERENCE_TYPE_SUBJECT",
-        referenceImage: { image: { bytesBase64Encoded: data, mimeType } },
+        image: { bytesBase64Encoded: data, mimeType },
+        referenceType: "asset",
       };
     });
   }
@@ -96,6 +95,10 @@ export async function generateVideo(
     if (pollData.done) {
       videoUri =
         pollData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+      if (!videoUri) {
+        // Log the full response so we can see the actual shape
+        console.log("[veo] done=true but no URI found. Full response:", JSON.stringify(pollData, null, 2));
+      }
       break;
     }
   }

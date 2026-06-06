@@ -37,8 +37,8 @@ export function buildVideoModels(
 ): ModelInfo[] {
   if (!env.GEMINI_API_KEY) return [];
   return [
-    { name: "veo/veo-3.1-generate-preview", size: "remote" },
-    { name: "veo/veo-3.1-fast-generate-preview", size: "remote" },
+    { name: "veo/veo-3.1-generate-preview", size: "remote", imageInput: true },
+    { name: "veo/veo-3.1-fast-generate-preview", size: "remote", imageInput: true },
     { name: "veo/veo-2.0-generate-001", size: "remote" },
   ];
 }

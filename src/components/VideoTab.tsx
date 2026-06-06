@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ImageInput from "@/components/ImageInput";
 import VideoCard from "@/components/VideoCard";
-import type { VideoRow, VideoSSEEvent, ModelsResponse } from "@/types";
+import type { VideoRow, VideoSSEEvent, ModelsResponse, ModelInfo } from "@/types";
 
 function generateId(): string {
   return `vid_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -16,7 +16,7 @@ export default function VideoTab() {
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<VideoRow[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -25,9 +25,8 @@ export default function VideoTab() {
       .then((r) => r.json())
       .then((data: ModelsResponse | { error?: string }) => {
         if ("videoModels" in data && data.videoModels && data.videoModels.length > 0) {
-          const names = data.videoModels.map((m) => m.name);
-          setAvailableModels(names);
-          setSelectedModel(names[0]);
+          setAvailableModels(data.videoModels);
+          setSelectedModel(data.videoModels[0].name);
         }
       })
       .catch(() => {
@@ -150,25 +149,33 @@ export default function VideoTab() {
   }
 
   const canGenerate = !!prompt.trim() && !!selectedModel && !isGenerating;
+  const selectedModelInfo = availableModels.find((m) => m.name === selectedModel);
+  const supportsReferenceImages = selectedModelInfo?.imageInput === true;
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-6 flex flex-col gap-6">
       {/* Input section */}
       <section className="bg-neutral-900/50 rounded-2xl p-5 border border-neutral-800 flex flex-col gap-5">
 
-        {/* Reference image drop zones */}
-        <div>
-          <p className="text-neutral-500 text-xs font-semibold uppercase tracking-wider mb-3">
-            Reference Images <span className="text-neutral-700 normal-case font-normal">(optional — up to 3)</span>
-          </p>
-          <div className="grid grid-cols-3 gap-3">
-            {([0, 1, 2] as const).map((i) => (
-              <div key={i} className="h-44">
-                <ImageInput value={referenceImages[i]} onChange={handleImageChange(i)} />
-              </div>
-            ))}
+        {/* Reference image drop zones — only shown for models that support them */}
+        {supportsReferenceImages ? (
+          <div>
+            <p className="text-neutral-500 text-xs font-semibold uppercase tracking-wider mb-3">
+              Reference Images <span className="text-neutral-700 normal-case font-normal">(optional — up to 3)</span>
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {([0, 1, 2] as const).map((i) => (
+                <div key={i} className="h-44">
+                  <ImageInput value={referenceImages[i]} onChange={handleImageChange(i)} />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : selectedModel ? (
+          <div className="rounded-xl bg-neutral-900 border border-neutral-800 px-4 py-3 text-neutral-600 text-xs">
+            Reference images are only supported by Veo 3.1 and Veo 3.1 Fast.
+          </div>
+        ) : null}
 
         {/* Prompt */}
         <div>
@@ -191,14 +198,15 @@ export default function VideoTab() {
           {availableModels.length > 0 && (
             <>
               <span className="text-neutral-500 text-xs">Model:</span>
-              {availableModels.map((model) => {
-                const short = model.split("/").pop() ?? model;
-                const active = selectedModel === model;
+              {availableModels.map((m) => {
+                const short = m.name.split("/").pop() ?? m.name;
+                const active = selectedModel === m.name;
                 return (
                   <button
-                    key={model}
+                    key={m.name}
                     type="button"
-                    onClick={() => setSelectedModel(model)}
+                    onClick={() => setSelectedModel(m.name)}
+                    title={m.imageInput ? "Supports reference images" : "Text-to-video only"}
                     className={`px-2.5 py-1 rounded-md text-xs font-mono transition-colors border ${
                       active
                         ? "bg-violet-800/50 border-violet-600 text-violet-200"
@@ -206,6 +214,9 @@ export default function VideoTab() {
                     }`}
                   >
                     {short}
+                    {m.imageInput && (
+                      <span className="ml-1 opacity-50">🖼</span>
+                    )}
                   </button>
                 );
               })}
