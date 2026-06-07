@@ -42,3 +42,9 @@ next-env.d.ts
 
 # generated videos
 /public/videos
+
+# Claude Code local files (personal, machine-specific)
+.claude/settings.local.json
+.claude/agent-memory/
+.claude/worktrees/
+CLAUDE.local.md
