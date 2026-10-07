@@ -1,4 +1,3 @@
-import { generateImage as ollamaGenerate } from "@/lib/ollama";
 import { generateImage as geminiGenerate } from "@/lib/gemini";
 import { generateImage as comfyuiGenerate } from "@/lib/comfyui";
 import { generateImage as openaiGenerate } from "@/lib/openai";
@@ -20,5 +19,8 @@ export function dispatchGenerate(
   if (model.startsWith("openai/")) {
     return openaiGenerate(model.slice("openai/".length), prompt, rest, imageDataUri);
   }
-  return ollamaGenerate(model, prompt, rest);
+  // Reject rather than throw: callers chain .then/.catch on the returned promise
+  return Promise.reject(
+    new Error(`Unknown model "${model}": expected a gemini/, openai/ or comfyui/ prefix`)
+  );
 }

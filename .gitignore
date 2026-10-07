@@ -48,3 +48,9 @@ next-env.d.ts
 .claude/agent-memory/
 .claude/worktrees/
 CLAUDE.local.md
+
+# sample code
+/example
+
+# IDE
+/.idea

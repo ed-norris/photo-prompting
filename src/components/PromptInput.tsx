@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 
-const DEFAULT_MODELS = ["x/flux2-klein:latest", "x/z-image-turbo:latest"];
+const DEFAULT_MODELS = ["comfyui/flux-dev1"];
 
 interface PromptInputProps {
   onGenerate: (

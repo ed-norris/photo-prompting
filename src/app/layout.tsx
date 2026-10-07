@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Image Prompt Workbench",
-  description: "Test image generation prompts across multiple Ollama models",
+  description: "Test image generation prompts across multiple models",
 };
 
 export default function RootLayout({

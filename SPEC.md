@@ -1,7 +1,7 @@
 # Image Prompt Workbench — Spec
 
 > **Status:** Draft — iterating with user
-> **Last updated:** 2026-06-04 (rev 5)
+> **Last updated:** 2026-10-06 (rev 6)
 > **Confidence:** 95%
 
 ---
@@ -29,16 +29,11 @@ Built for a class in AI, photography, and cinema.
 
 ## 3. Models
 
-### v1 — Local (Ollama)
+### v1 — Local text (LM Studio)
 
-| Model | Type | Interface |
-|-------|------|-----------|
-| `x/flux2-klein:latest` | Text → Image (safetensors, Flux2KleinPipeline) | Ollama API on localhost:11434 |
-| `x/z-image-turbo:latest` | Text → Image (safetensors) | Ollama API on localhost:11434 |
-
-- Ollama's `POST /api/generate` endpoint: `{"model": "<name>", "prompt": "<text>", "stream": false}`
-- Response JSON includes an `image` field containing the PNG as a **base64-encoded string**
-- No file I/O needed — the app decodes base64 and serves images directly to the browser (or stores as data URIs)
+- LM Studio (server on localhost:1234) is used only for prompt variations; it serves text LLMs and cannot generate images
+- LLMs are listed dynamically from `GET /api/v1/models` (entries of type `llm`), currently `google/gemma-4-26b-a4b-qat` and `qwen/qwen3.6-35b-a3b`
+- The Ollama image models (`x/flux2-klein`, `x/z-image-turbo`) were dropped on 2026-10-06 when the project moved from Ollama to LM Studio, since LM Studio can't generate images
 
 ### v1 — Local (ComfyUI)
 
@@ -108,7 +103,7 @@ Adjacent to the text box, a panel with clickable/browsable photography terms org
 Clicking a suggestion appends it to the prompt (or inserts at cursor).
 
 ### 4.3 Auto-generated Variations _(Text only)_
-- Given a base prompt, the app suggests N variations using `gemma4:e4b` via Ollama
+- Given a base prompt, the app suggests N variations using the LM Studio LLM chosen in a Model dropdown in the panel (defaults to the first LLM by name)
 - Variations adjust style, lighting, composition, or camera parameters
 - Each variation is shown with a checkbox; user selects which to run
 - "Run Selected" generates one row per checked variation
@@ -124,7 +119,7 @@ Clicking a suggestion appends it to the prompt (or inserts at cursor).
 ### Tech Stack
 - **Framework:** Next.js (App Router) with TypeScript
 - **Styling:** Tailwind CSS
-- **Backend:** Next.js API routes (call Ollama/ComfyUI/Gemini, manage generated images)
+- **Backend:** Next.js API routes (call LM Studio/ComfyUI/Gemini/OpenAI, manage generated images)
 - **Persistence:** None (session-only). SQLite possible for v2 if history/favorites are wanted.
 
 ### Tab Bar
@@ -162,8 +157,8 @@ Switching tabs replaces the entire content area. The selected model list, advanc
 │                                                 │
 │  Prompt: "a foggy pier at sunrise, 85mm f/1.4"  │
 │  ┌──────────┬──────────┬──────────┬──────────┐  │
-│  │ flux2    │ flux2    │ z-image  │ z-image  │  │
-│  │ klein #1 │ klein #2 │ turbo #1 │ turbo #2 │  │
+│  │ comfyui  │ comfyui  │ gemini   │ gemini   │  │
+│  │ flux #1  │ flux #2  │ #1       │ #2       │  │
 │  │          │          │          │          │  │
 │  │  [img]   │  [img]   │  [img]   │  [img]   │  │
 │  └──────────┴──────────┴──────────┴──────────┘  │
@@ -298,9 +293,8 @@ Browser (Next.js frontend)
     ▼
 Next.js API Routes (backend)
     │
-    ├──► Ollama REST API (localhost:11434)
-    │       └── x/flux2-klein, x/z-image-turbo  (image generation)
-    │       └── gemma4:e4b                       (variation suggestions)
+    ├──► LM Studio REST API (localhost:1234)
+    │       └── Gemma 4 / Qwen3.6 LLMs           (variation suggestions)
     │
     ├──► ComfyUI REST API (localhost:8188)
     │       └── flux-dev1 (Flux Dev 1 checkpoint)
@@ -320,7 +314,7 @@ Next.js API Routes (backend)
 | Class | Prefix / type | Execution |
 |-------|--------------|-----------|
 | Remote | `gemini/`, `openai/` | Parallel — all start immediately |
-| Local | `comfyui/`, bare Ollama names | Serial — one at a time (shared GPU) |
+| Local | `comfyui/` | Serial — one at a time (shared GPU) |
 
 Remote and local groups run concurrently with each other; only models within the local group are serialised.
 
@@ -332,7 +326,7 @@ Remote and local groups run concurrently with each other; only models within the
 5. As each call completes (in any order), the backend emits an SSE event with the result or error
 6. Frontend renders images in the grid as events arrive — cells fill in as they complete, not left-to-right
 
-For Text and Reference, the POST body includes an additional `imageDataUri` field (a base64 data URI). The dispatch layer passes this to the Gemini and OpenAI clients; local models (Ollama, ComfyUI) never appear in Text and Reference so they never receive it. The `imageDataUri` is optional in the API contract — its presence signals image-input mode.
+For Text and Reference, the POST body includes an additional `imageDataUri` field (a base64 data URI). The dispatch layer passes this to the Gemini and OpenAI clients; local models (ComfyUI) never appear in Text and Reference so they never receive it. The `imageDataUri` is optional in the API contract — its presence signals image-input mode.
 
 ### Video Generation Flow
 
@@ -354,12 +348,12 @@ SSE events emitted during the flow:
 
 Reference images are passed inline as base64 in the `instances` array of the `predictLongRunning` request. With 0 images the request has only the text prompt (text-to-video). Veo treats all provided images as reference material for content, style, and subjects — the prompt instructs how they are used.
 
-**Example** — gemini, openai, flux2-klein, z-image-turbo selected:
+**Example** — gemini, openai, flux-dev1 selected, 2 images per model:
 ```
-t=0   gemini   ─────────────────────►  (remote, parallel)
-t=0   openai   ──────────────────────────►  (remote, parallel)
-t=0   flux2-klein  ────────────►  (local #1, starts immediately)
-t=?                              z-image-turbo  ──────────►  (local #2, starts when flux2-klein finishes)
+t=0   gemini ×2      ─────────────────────►  (remote, parallel)
+t=0   openai ×2      ──────────────────────────►  (remote, parallel)
+t=0   flux-dev1 #1   ────────────►  (local, starts immediately)
+t=?                                flux-dev1 #2  ──────────►  (local, starts when #1 finishes)
 ```
 
 ### Retry Flow
@@ -370,28 +364,34 @@ t=?                              z-image-turbo  ──────────�
 
 ### Variation Suggestion Flow
 1. User clicks "Suggest Variations" → POST /api/suggest
-2. Backend sends the base prompt to `gemma4:e4b` (Ollama) asking for N variations
+2. Backend sends the base prompt to the selected LM Studio LLM via `POST /api/v1/chat` (reasoning off, see Section 7) asking for N variations
 3. Returns variation strings to the frontend
 4. User selects which to run via checkboxes; "Run Selected" generates one row per variation
 5. Variations use the same models and Advanced options as the last Generate
 
 ### Model Dispatch
-- Model names are prefixed by backend: `gemini/...`, `openai/...`, `comfyui/...`, or bare name (Ollama)
-- `/api/generate` splits models into remote (`gemini/`, `openai/`) and local (`comfyui/`, bare) then dispatches accordingly (see execution model above)
-- `/api/models` returns Ollama models dynamically + ComfyUI, Gemini, and OpenAI as static entries
+- Model names are prefixed by backend: `gemini/...`, `openai/...`, `comfyui/...`; names without a known prefix are rejected
+- `/api/generate` splits models into remote (`gemini/`, `openai/`) and local (`comfyui/`) then dispatches accordingly (see execution model above)
+- `/api/models` returns ComfyUI, Gemini, and OpenAI as static image entries, plus LM Studio's LLMs (listed dynamically) as `textModels`
   - Gemini only included when `GEMINI_API_KEY` is set
   - OpenAI only included when `OPENAI_API_KEY` is set
 
 ## 7. Verified API Details
 
-### Ollama
-- **Endpoint:** `POST http://localhost:11434/api/generate`
-- **Request:** `{"model": "x/flux2-klein:latest", "prompt": "...", "stream": false}`
-- **Response:** JSON with `model`, `created_at`, `response`, `done`, `done_reason`, `total_duration`, `load_duration`, `image` (base64 PNG)
-- **Both models tested and working** (2026-04-02)
-- flux2-klein output: ~480KB PNG
-- z-image-turbo output: ~570KB PNG
-- **Note:** Ollama broke with their latest update as of 2026-04-14; on hold
+### LM Studio
+- **Used for:** prompt variations only; LM Studio serves text LLMs and cannot generate images
+- **List models:** `GET http://localhost:1234/api/v1/models` returns `{"models": [{"type": "llm" | "embedding", "key": "google/gemma-4-26b-a4b-qat", "size_bytes": 15641332573, "capabilities": {...}}]}`
+  - Only `type: "llm"` entries are offered; embedding models (e.g. `text-embedding-nomic-embed-text-v1.5`) are filtered out, and the LLMs are sorted by `key`
+  - Lists every downloaded model whether or not it is currently loaded
+  - `capabilities.reasoning.allowed_options` (e.g. `["off", "on"]`) is present only on reasoning-capable models
+- **Chat endpoint:** `POST http://localhost:1234/api/v1/chat` (LM Studio's native endpoint, not the OpenAI-compatible one)
+- **Request:** `{"model": "<key>", "system_prompt": "...", "input": "...", "reasoning": "off", "store": false}`
+- **Response:** `{"model_instance_id": "...", "output": [{"type": "message", "content": "1. ...\n2. ..."}], "stats": {...}}`; `output` items can also be of type `reasoning`, `tool_call`, or `invalid_tool_call`, and only `message` items are the answer
+- **Conditional reasoning:** `reasoning: "off"` is sent only when the model's `capabilities.reasoning.allowed_options` includes `"off"`, because LM Studio errors on a reasoning setting the model doesn't support. Thinking would only add latency to a short list
+- **`store: false`:** one-off suggestion chats shouldn't be kept in LM Studio
+- **Errors:** non-2xx with `{"error": {"message": "...", "type": "invalid_request", "param": "model", "code": "model_not_found"}}` (e.g. HTTP 404 for an unknown model); the client surfaces `error.message`. If the server isn't running, `fetch` rejects and `/api/suggest` responds 503
+- **Model loading:** LM Studio loads a model just-in-time on the first request that names it (about 8–10 s on first use on this M3 Max) and unloads it automatically after an idle period
+- Tested with both models 2026-10-06 (LM Studio 0.4.25): ~95–100 tok/s, 0 reasoning tokens
 
 ### ComfyUI
 - **Endpoint:** `POST http://localhost:8188/prompt`
@@ -523,12 +523,12 @@ Unit tests cover the backend API route logic and utility functions. UI component
 
 | Area | Examples |
 |------|---------|
-| Model dispatch | `gemini/...` routes to Gemini client; `openai/...` routes to OpenAI client; bare name routes to Ollama |
+| Model dispatch | `gemini/...` routes to Gemini client; `openai/...` routes to OpenAI client; unknown prefix is rejected |
 | Model list filtering | Gemini excluded when `GEMINI_API_KEY` unset; OpenAI excluded when `OPENAI_API_KEY` unset |
 | Text and Reference model filtering | Only `gemini/` and `openai/` models returned for image-input mode |
 | Video model filtering | Only `veo/` models returned for video mode; excluded when `GEMINI_API_KEY` unset |
 | Base64 utilities | Encode/decode round-trips; data URI construction |
-| Request builders | Correct shape of Ollama, ComfyUI, Gemini, and OpenAI payloads given a prompt + options |
+| Request builders | Correct shape of LM Studio, ComfyUI, Gemini, and OpenAI payloads given a prompt + options |
 | Gemini image input | Request includes `inlineData` part when `imageDataUri` is provided; omits it when not |
 | OpenAI image input | Uses `/images/edits` endpoint (multipart) when `imageDataUri` provided; uses `/images/generations` otherwise |
 | Veo request builder | Correct `predictLongRunning` shape with and without reference images |
@@ -581,6 +581,4 @@ Allows the user to line up multiple prompts in advance and walk away while they 
 1. **How many variations to suggest?** Starting with 3-5 seems reasonable.
 2. **Persistence for v2** — save history, favorites, ratings?
 3. **Remote model integration** — API key management, cost tracking?
-4. **Image resolution/size options** — does Ollama expose these for image models?
-5. **Generation time** — each image takes several seconds. Show progress/spinners per cell.
-6. **Ollama breakage** — blocked on Ollama fixing their latest update before Ollama-backed models can be tested again.
+4. **Generation time** — each image takes several seconds. Show progress/spinners per cell.

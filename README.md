@@ -17,9 +17,9 @@ Results stream in as each model finishes. Per-cell retry on failure. Queue mode 
 ## Prerequisites
 
 - **Node.js 20+**
-- **Local services** (optional — only needed for local models):
-  - [Ollama](https://ollama.com) running on `localhost:11434`
-  - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running on `localhost:8188`
+- **Local services:**
+  - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running on `localhost:8188` (local image generation)
+  - [LM Studio](https://lmstudio.ai) with its server on `localhost:1234` (prompt variations, using any downloaded LLM)
 - **API keys** (optional — only needed for remote models):
   - `GEMINI_API_KEY` — enables Gemini image models and all Veo video models
   - `OPENAI_API_KEY` — enables `gpt-image-1-mini`
@@ -48,21 +48,21 @@ npm test          # run unit tests
 
 ## Models
 
-Remote models appear only when their API key is set. Local models appear only when the service is running.
+Remote models appear only when their API key is set; ComfyUI is always listed.
 
 | Model | Type | Requires |
 |-------|------|----------|
 | `gemini/gemini-3.1-flash-image-preview` | Text → Image, Text+Image → Image | `GEMINI_API_KEY` |
 | `openai/gpt-image-1-mini` | Text → Image, Text+Image → Image | `OPENAI_API_KEY` |
 | `comfyui/flux-dev1` | Text → Image | ComfyUI on :8188 |
-| `x/flux2-klein:latest` | Text → Image | Ollama on :11434 |
-| `x/z-image-turbo:latest` | Text → Image | Ollama on :11434 |
 | `veo/veo-3.1-generate-preview` | Video | `GEMINI_API_KEY` |
 | `veo/veo-3.1-fast-generate-preview` | Video | `GEMINI_API_KEY` |
 | `veo/veo-2.0-generate-001` | Video | `GEMINI_API_KEY` |
+
+Prompt variations (Text tab) use whichever LM Studio LLM is picked in the Variations panel, e.g. `google/gemma-4-26b-a4b-qat` or `qwen/qwen3.6-35b-a3b`. LM Studio loads the model on first use.
 
 ## Architecture
 
 See [SPEC.md](SPEC.md) for full feature details and [docs/architecture.md](docs/architecture.md) for design decisions.
 
-All image generation is routed through `src/lib/dispatch.ts`. Remote models (Gemini, OpenAI) run in parallel; local models (ComfyUI, Ollama) run serially to avoid GPU contention. Results stream to the browser via SSE. Images are base64 data URIs in React state — nothing is written to disk except generated videos (`public/videos/`).
+All image generation is routed through `src/lib/dispatch.ts`. Remote models (Gemini, OpenAI) run in parallel; local models (ComfyUI) run serially to avoid GPU contention. Results stream to the browser via SSE. Images are base64 data URIs in React state — nothing is written to disk except generated videos (`public/videos/`).

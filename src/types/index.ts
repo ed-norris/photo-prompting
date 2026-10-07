@@ -50,6 +50,7 @@ export interface ImageSSEEvent {
 export interface SuggestRequest {
   prompt: string;
   count: number;
+  model?: string; // LM Studio model key; server uses the first LLM when omitted
 }
 
 export interface SuggestResponse {

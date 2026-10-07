@@ -18,7 +18,7 @@ import type {
 } from "@/types";
 import type { ActiveTab } from "@/components/TabBar";
 
-const DEFAULT_MODELS = ["x/flux2-klein:latest", "x/z-image-turbo:latest"];
+const DEFAULT_MODELS = ["comfyui/flux-dev1"];
 
 function generateId(): string {
   return `gen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -41,6 +41,7 @@ export default function HomePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [availableImageModels, setAvailableImageModels] = useState<string[]>([]);
+  const [availableTextModels, setAvailableTextModels] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>(DEFAULT_MODELS);
   const [imagesPerModel, setImagesPerModel] = useState(1);
   const [lastOptions, setLastOptions] = useState<{ width?: number; height?: number; steps?: number }>({});
@@ -55,12 +56,15 @@ export default function HomePage() {
     fetch("/api/models")
       .then((r) => r.json())
       .then((data: ModelsResponse | { error?: string }) => {
-        if ("imageModels" in data && data.imageModels.length > 0) {
-          setAvailableImageModels(data.imageModels.map((m) => m.name));
+        if ("imageModels" in data) {
+          if (data.imageModels.length > 0) {
+            setAvailableImageModels(data.imageModels.map((m) => m.name));
+          }
+          setAvailableTextModels(data.textModels.map((m) => m.name));
         }
       })
       .catch(() => {
-        // Ollama not running — fall back to hardcoded defaults
+        // /api/models was unreachable — fall back to hardcoded defaults
       });
   }, []);
 
@@ -287,6 +291,7 @@ export default function HomePage() {
               </h2>
               <VariationsPanel
                 basePrompt={prompt}
+                textModels={availableTextModels}
                 onRunVariations={handleRunVariations}
               />
             </section>

@@ -1,4 +1,4 @@
-import { parseVariations } from "@/lib/ollama";
+import { parseVariations } from "@/lib/lmstudio";
 
 describe("parseVariations", () => {
   it("parses a standard numbered list", () => {

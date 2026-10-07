@@ -4,11 +4,13 @@ import { useState } from "react";
 
 interface VariationsPanelProps {
   basePrompt: string;
+  textModels: string[];
   onRunVariations: (prompts: string[]) => void;
 }
 
 export default function VariationsPanel({
   basePrompt,
+  textModels,
   onRunVariations,
 }: VariationsPanelProps) {
   const [variations, setVariations] = useState<string[]>([]);
@@ -18,6 +20,10 @@ export default function VariationsPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(4);
+  const [model, setModel] = useState("");
+
+  // Falls back to the first model until the user picks one, or if the pick disappears
+  const activeModel = textModels.includes(model) ? model : textModels[0];
 
   async function handleSuggest() {
     if (!basePrompt.trim()) {
@@ -34,7 +40,7 @@ export default function VariationsPanel({
       const res = await fetch("/api/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: basePrompt, count }),
+        body: JSON.stringify({ prompt: basePrompt, count, model: activeModel }),
       });
 
       if (!res.ok) {
@@ -92,7 +98,24 @@ export default function VariationsPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* Header row */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {textModels.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-neutral-500 text-xs">Model:</label>
+            <select
+              value={activeModel}
+              onChange={(e) => setModel(e.target.value)}
+              className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-neutral-300 text-xs focus:outline-none focus:border-violet-500"
+            >
+              {textModels.map((m) => (
+                <option key={m} value={m}>
+                  {m.split("/").pop() ?? m}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <label className="text-neutral-500 text-xs">Variations:</label>
           <select

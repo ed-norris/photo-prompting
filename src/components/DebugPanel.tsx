@@ -54,12 +54,8 @@ function buildPayload(
     return payload;
   }
 
-  // Ollama
-  const payload: Record<string, unknown> = { model, prompt, stream: false };
-  if (width) payload.width = width;
-  if (height) payload.height = height;
-  if (steps) payload.steps = steps;
-  return payload;
+  // dispatch rejects unknown prefixes, so there is no real payload to show
+  return { model, prompt };
 }
 
 export default function DebugPanel({ prompt, params, timestamp }: DebugPanelProps) {

@@ -4,6 +4,8 @@
 > **Date:** 2026-04-02
 > **Status:** Ready for implementation
 
+> **Backend change (2026-10-06):** Ollama is no longer used. Image generation runs on ComfyUI, Gemini and OpenAI; prompt variations use LM Studio. See SPEC.md for the current design.
+
 ---
 
 ## Requirements Summary
