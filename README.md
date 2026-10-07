@@ -61,6 +61,8 @@ Remote models appear only when their API key is set; ComfyUI is always listed.
 
 Prompt variations (Text tab) use whichever LM Studio LLM is picked in the Variations panel, e.g. `google/gemma-4-26b-a4b-qat` or `qwen/qwen3.6-35b-a3b`. LM Studio loads the model on first use.
 
+ComfyUI is the only local image backend today. [docs/local-image-generation.md](docs/local-image-generation.md) compares the other local options (Draw Things, mflux, stable-diffusion.cpp and a pinned Ollama 0.32.5).
+
 ## Architecture
 
 See [SPEC.md](SPEC.md) for full feature details and [docs/architecture.md](docs/architecture.md) for design decisions.

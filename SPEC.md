@@ -45,6 +45,7 @@ Built for a class in AI, photography, and cinema.
 - API format: POST to `/prompt` with flat node dict (subgraph expanded), poll `/history/{prompt_id}`, fetch image from `/view`
 - Returns raw image bytes; converted to base64 data URI in the backend
 - Default resolution: 1024×1024 (overridable via Advanced options)
+- Other local image backends that could be added are compared in [docs/local-image-generation.md](docs/local-image-generation.md)
 
 ### v1 — Remote (Gemini)
 
